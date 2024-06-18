@@ -28,7 +28,32 @@ const HeartRate = sequelize.define('HeartRate', {
     }
 }, {
     primaryKey: true, tableName: 'heart_rate', createdAt: false, updatedAt: false
-})
+});
+
+const SPO = sequelize.define('SPO', {
+    account_id: { type: DataTypes.STRING },
+    spo2: { type: DataTypes.INTEGER },
+    created_at: { type: DataTypes.TIME }
+}, {
+    primaryKey: true, tableName: 'spo', createdAt: false, updatedAt: false
+});
+
+const Location = sequelize.define('Location', {
+    account_id: { type: DataTypes.STRING },
+    latitude: { type: DataTypes.DOUBLE },
+    longitude: { type: DataTypes.DOUBLE },
+    created_at: { type: DataTypes.TIME }
+}, {
+    primaryKey: true, tableName: 'location', createdAt: false, updatedAt: false
+});
+
+const Temperature = sequelize.define('Temperature', {
+    account_id: { type: DataTypes.STRING },
+    temperature: { type: DataTypes.DOUBLE },
+    created_at: { type: DataTypes.TIME }
+}, {
+    primaryKey: true, tableName: 'temperature', createdAt: false, updatedAt: false
+});
 
 const healthCheck = async function () {
     try {
@@ -39,4 +64,4 @@ const healthCheck = async function () {
     }
 }
 
-module.exports = {healthCheck, Account, HeartRate}
+module.exports = {healthCheck, Account, HeartRate, SPO, Location, Temperature}

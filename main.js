@@ -33,3 +33,45 @@ app.post('/send_heart_rate', (req, res) => {
     handlers.record_heart_rate(req.body);
     res.send("OK");
 });
+
+app.post('/get_heart_rate', async (req, res) => {
+    const {account_id} = req.body;
+    const response = await handlers.get_heart_rate(account_id);
+    res.send(response);
+});
+
+app.post('/send_spo', async (req, res) => {
+    const {account_id, spo} = req.body;
+    const response = await handlers.record_spo(account_id, spo);
+    res.send(response);
+});
+
+app.post('/get_spo', async (req, res) => {
+    const {account_id} = req.body;
+    const response = await handlers.get_spo(account_id);
+    res.send(response);
+});
+
+app.post('/send_location', async (req, res) => {
+    const {account_id, latitude, longitude} = req.body;
+    const response = await handlers.send_location(account_id, latitude, longitude);
+    res.send(response);
+});
+
+app.post('/get_location', async (req, res) => {
+    const {account_id} = req.body;
+    const response = await handlers.get_location(account_id);
+    res.send(response);
+});
+app.post('/send_temperature', async (req, res) => {
+    const {account_id, temperature} = req.body;
+    const response = await handlers.send_temperature(account_id, temperature);
+    res.send(response);
+});
+
+app.post('/get_temperature', async (req, res) => {
+    const {account_id} = req.body;
+    const response = await handlers.get_temperature(account_id);
+    res.send(response);
+});
+
