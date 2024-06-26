@@ -22,18 +22,15 @@ app.get('/', (req, res) => {
 })
 
 app.post('/signup', (req, res) => {
-    console.log(req.body);
     res.send('Signup Success');
 })
 
 app.post('/register_patient', authenticateToken, async (req, res) => {
-    console.log(req.body);
     const {name, height, age, conditions} = req.body;
     await handlers.register_patient(req.user, name, age, 180, conditions);
 })
 
 app.post('/send_heart_rate', (req, res) => {
-    console.log(req.body);
     handlers.record_heart_rate(req.body);
     res.send("OK");
 });
@@ -86,7 +83,6 @@ app.post('/get_patient_status', async (req, res) => {
 });
 
 app.post('/add_notes', async (req, res) => {
-    console.log(req.body)
     const {patient_id, note, image} = req.body;
     const response = await handlers.add_notes(patient_id, note, image);
     res.send(response);
@@ -108,7 +104,6 @@ app.post('/get_heart_rates', authenticateToken, async (req, res) => {
 app.post('/get_patients_list', authenticateToken, async (req, res) => {
     const account_id = req.user.account_id;
     const response = await handlers.get_patients_list(account_id);
-    console.log('get_heart_rates', response);
     res.send(response);
 })
 
@@ -181,8 +176,31 @@ app.post('/delete_prescription', authenticateToken, async (req, res) => {
     res.send(response);
 });
 
+app.post('/delete_notes', authenticateToken, async (req, res) => {
+    const {id} = req.body;
+    const response = await handlers.delete_note(id);
+    res.send(response);
+});
+
+app.post('/add_reminder', authenticateToken, async (req, res) => {
+    const {patient_id, reminderText: reminder, date} = req.body;
+    const response = await handlers.add_reminder(patient_id, reminder, date);
+    res.send(response);
+})
+
+app.post('/get_reminders', authenticateToken, async (req, res) => {
+    const {patient_id} = req.body;
+    const response = await handlers.get_reminders(patient_id);
+    res.send(response);
+});
+
+app.post('/delete_reminder', authenticateToken, async (req, res) => {
+    const {id} = req.body;
+    const response = await handlers.delete_reminder(id);
+    res.send(response);
+});
+
 app.post('/login', (req, res) => {
-    console.log(req.body)
     const token = generateAccessToken({account_id: req.body.username});
     res.json(token);
 });

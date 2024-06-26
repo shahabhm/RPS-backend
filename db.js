@@ -98,6 +98,15 @@ const PatientPrescription = sequelize.define('PatientPrescription', {
     primaryKey: false, tableName: 'patient_prescription', createdAt: false, updatedAt: false
 });
 
+const Reminder = sequelize.define('Reminder', {
+    patient_id: {type: DataTypes.INTEGER},
+    reminder: {type: DataTypes.STRING},
+    date: {type: DataTypes.TIME},
+    created_at: {type: DataTypes.TIME}
+}, {
+    primaryKey: true, tableName: 'reminder', createdAt: false, updatedAt: false
+});
+
 const healthCheck = async function () {
     try {
         await sequelize.authenticate();
@@ -118,5 +127,6 @@ module.exports = {
     Note,
     PatientCondition,
     Patient,
-    DoctorPatient
+    DoctorPatient,
+    Reminder
 }

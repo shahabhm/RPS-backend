@@ -1,6 +1,6 @@
 const {
     Account, HeartRate, SPO, Location, Temperature, Note, PatientCondition, Patient, DoctorPatient,
-    PatientPrescription
+    PatientPrescription, Reminder
 } = require('./db')
 
 
@@ -58,7 +58,6 @@ const signup = function (name, phoneNumber, role) {
 }
 
 const record_heart_rate = async function (data) {
-    console.log(data)
     const {account_id, heart_rate} = data
     const record = HeartRate.build({
         account_id: account_id, heart_rate: heart_rate, created_at: new Date()
@@ -228,6 +227,55 @@ const get_patients_list = async function (account_id) {
     }
 }
 
+const delete_note = async function (note_id) {
+    try {
+        await Note.destroy({
+            where: {
+                id: note_id
+            }
+        });
+    } catch (err) {
+        console.error(err)
+    }
+}
+
+const add_reminder = async function (patient_id, reminder, date) {
+    const record = Reminder.build({
+        patient_id: patient_id, reminder: reminder, date: date
+    });
+    try {
+        await record.save();
+        return {result: "OK"};
+    } catch (err) {
+        console.error(err)
+    }
+}
+
+const get_reminders = async function (patient_id) {
+    try {
+        const records = await Reminder.findAll({
+            where: {
+                patient_id: patient_id
+            }
+        });
+        return records;
+    } catch (err) {
+        console.error(err)
+    }
+}
+
+const delete_reminder = async function (reminder_id) {
+    try {
+        await Reminder.destroy({
+            where: {
+                id: reminder_id
+            }
+        });
+    } catch (err) {
+        console.error(err)
+    }
+}
+
 module.exports = {
     signup,
     record_heart_rate,
@@ -245,5 +293,9 @@ module.exports = {
     get_patient_overview,
     get_patient_prescriptions,
     add_prescription,
-    delete_prescription
+    delete_prescription,
+    delete_note,
+    add_reminder,
+    get_reminders,
+    delete_reminder
 }

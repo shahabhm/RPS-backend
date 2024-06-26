@@ -7,6 +7,7 @@ DROP TABLE IF EXISTS patient_condition;
 DROP TABLE IF EXISTS doctor_patient;
 DROP TABLE IF EXISTS doctor;
 DROP TABLE IF EXISTS patient_prescription;
+DROP TABLE IF EXISTS reminder;
 
 DROP TABLE IF EXISTS patient;
 DROP TABLE IF EXISTS account;
@@ -135,3 +136,15 @@ CREATE TABLE patient_prescription
     prescription TEXT NOT NULL,
     PRIMARY KEY (patient_id, prescription)
 );
+
+CREATE TABLE reminder
+(
+    id         SERIAL PRIMARY KEY,
+    patient_id INTEGER REFERENCES patient (id) NOT NULL,
+    reminder   TEXT                            NOT NULL,
+    date       TIMESTAMP                       NOT NULL,
+    created_at TIMESTAMP
+);
+
+INSERT INTO reminder (patient_id, reminder, date, created_at)
+VALUES (1, 'Take medicine', '2018-03-09 11:00:00.000', '2018-03-09 11:00:00.000');
