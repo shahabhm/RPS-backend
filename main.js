@@ -17,6 +17,13 @@ app.listen(port, () => {
     console.log(`Example app listening on port ${port}`)
 })
 
+app.post("/subscribe", async (req, res) => {
+    console.log(req.body);
+    const subscription = req.body;
+    await handlers.subscribe_push(1, subscription);
+    res.send({result: "OK"});
+});
+
 app.get('/', (req, res) => {
     res.send('Hello World!')
 })

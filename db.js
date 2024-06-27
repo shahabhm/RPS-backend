@@ -107,6 +107,15 @@ const Reminder = sequelize.define('Reminder', {
     primaryKey: true, tableName: 'reminder', createdAt: false, updatedAt: false
 });
 
+const PushSubscription = sequelize.define('PushSubscription', {
+    account_id: {type: DataTypes.INTEGER, unique: true},
+    endpoint: {type: DataTypes.TEXT},
+    p256dh: {type: DataTypes.TEXT},
+    auth: {type: DataTypes.TEXT}
+}, {
+    primaryKey: true, tableName: 'push_subscription', createdAt: false, updatedAt: false
+});
+
 const healthCheck = async function () {
     try {
         await sequelize.authenticate();
@@ -128,5 +137,6 @@ module.exports = {
     PatientCondition,
     Patient,
     DoctorPatient,
-    Reminder
+    Reminder,
+    PushSubscription
 }

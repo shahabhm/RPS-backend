@@ -8,7 +8,7 @@ DROP TABLE IF EXISTS doctor_patient;
 DROP TABLE IF EXISTS doctor;
 DROP TABLE IF EXISTS patient_prescription;
 DROP TABLE IF EXISTS reminder;
-
+DROP TABLE IF EXISTS push_subscription;
 DROP TABLE IF EXISTS patient;
 DROP TABLE IF EXISTS account;
 
@@ -148,3 +148,13 @@ CREATE TABLE reminder
 
 INSERT INTO reminder (patient_id, reminder, date, created_at)
 VALUES (1, 'Take medicine', '2018-03-09 11:00:00.000', '2018-03-09 11:00:00.000');
+
+
+CREATE TABLE push_subscription
+(
+    id         SERIAL PRIMARY KEY,
+    account_id INTEGER REFERENCES account (id) UNIQUE,
+    endpoint   TEXT NOT NULL,
+    p256dh     TEXT NOT NULL,
+    auth       TEXT NOT NULL
+);

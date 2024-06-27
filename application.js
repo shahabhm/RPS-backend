@@ -1,7 +1,11 @@
+const PushNotifications = require("node-pushnotifications");
 const {
     Account, HeartRate, SPO, Location, Temperature, Note, PatientCondition, Patient, DoctorPatient,
-    PatientPrescription, Reminder
+    PatientPrescription, Reminder, PushSubscription
 } = require('./db')
+
+const publicVapidKey = "BDOLcqQ0rm4DNNyx-L8glLEqWkpnIsgzFkpVaJGABBEYmFR9qhdW6Wc9hyQGiyVBa1MUsqwyNAdcBEln0iVObOE";
+const privateVapidKey = process.env.PRIVATE_VAPID_KEY;
 
 
 const get_patient_prescriptions = async function (patient_id) {
@@ -276,6 +280,58 @@ const delete_reminder = async function (reminder_id) {
     }
 }
 
+const subscribe_push = async function (account_id, subscription) {
+    PushSubscription.upsert({
+        account_id: account_id,
+        endpoint: subscription.endpoint,
+        p256dh: subscription.keys.p256dh,
+        auth: subscription.keys.auth
+    }).catch(err => {
+        console.error(err);
+    })
+}
+
+const send_push = async function (account_id) {
+    try {
+        const subscription = await PushSubscription.findOne({
+            where: {
+                account_id: account_id
+            }
+        });
+        const subscription_object = {
+            endpoint: subscription.endpoint,
+            keys: {
+                p256dh: subscription.p256dh,
+                auth: subscription.auth
+            }
+        }
+        const settings = {
+            web: {
+                vapidDetails: {
+                    subject: "mailto:s.hosseini306@gmail.com",
+                    publicKey: publicVapidKey,
+                    privateKey: privateVapidKey,
+                },
+                gcmAPIKey: "gcmkey",
+                TTL: 2419200,
+                contentEncoding: "aes128gcm",
+                headers: {},
+            },
+            isAlwaysUseFCM: false,
+        };
+        const push = new PushNotifications(settings);
+        const payload = {title: "Notification from Knock"};
+        push.send(subscription_object, payload, (err, result) => {
+            if (err) {
+                console.log(err);
+            } else {
+                console.log(result);
+            }
+        });
+    } catch (err) {
+        console.error(err)
+    }
+}
 module.exports = {
     signup,
     record_heart_rate,
@@ -297,5 +353,7 @@ module.exports = {
     delete_note,
     add_reminder,
     get_reminders,
-    delete_reminder
+    delete_reminder,
+    subscribe_push,
+    send_push
 }
