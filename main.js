@@ -28,13 +28,15 @@ app.get('/', (req, res) => {
     res.send('Hello World!')
 })
 
-app.post('/signup', (req, res) => {
-    res.send('Signup Success');
-})
+app.post('/signup', async(req, res) => {
+    const {username, password, role, name, phone_number} = req.body;
+    const response = await handlers.signup(username, password, role, name, phone_number);
+    res.json(response);
+});
 
 app.post('/register_patient', authenticateToken, async (req, res) => {
-    const {name, height, age, conditions} = req.body;
-    await handlers.register_patient(req.user, name, age, 180, conditions);
+    const {name, height, age, city, conditions, birthdate} = req.body;
+    await handlers.register_patient(req.user, name, age, height, conditions, city, birthdate);
 })
 
 app.post('/send_heart_rate', (req, res) => {
@@ -89,9 +91,9 @@ app.post('/get_patient_status', async (req, res) => {
     res.send(response);
 });
 
-app.post('/add_notes', async (req, res) => {
-    const {patient_id, note, image} = req.body;
-    const response = await handlers.add_notes(patient_id, note, image);
+app.post('/add_notes', authenticateToken, async (req, res) => {
+    const {patient_id, note, image, note_title} = req.body;
+    const response = await handlers.add_notes(req.user.account_id, patient_id, note, image, note_title);
     res.send(response);
 });
 
@@ -111,6 +113,8 @@ app.post('/get_heart_rates', authenticateToken, async (req, res) => {
 app.post('/get_patients_list', authenticateToken, async (req, res) => {
     const account_id = req.user.account_id;
     const response = await handlers.get_patients_list(account_id);
+    console.log(response);
+    await handlers.send_push(req.user.account_id, response)
     res.send(response);
 })
 
@@ -207,7 +211,8 @@ app.post('/delete_reminder', authenticateToken, async (req, res) => {
     res.send(response);
 });
 
-app.post('/login', (req, res) => {
-    const token = generateAccessToken({account_id: req.body.username});
+app.post('/login', async (req, res) => {
+    const {username, password} = req.body;
+    const token = await handlers.login(username, password);
     res.json(token);
 });

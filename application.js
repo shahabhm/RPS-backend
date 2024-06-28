@@ -1,13 +1,40 @@
 const PushNotifications = require("node-pushnotifications");
 const {
     Account, HeartRate, SPO, Location, Temperature, Note, PatientCondition, Patient, DoctorPatient,
-    PatientPrescription, Reminder, PushSubscription
+    PatientPrescription, Reminder, PushSubscription, Credentials
 } = require('./db')
 
 const publicVapidKey = "BDOLcqQ0rm4DNNyx-L8glLEqWkpnIsgzFkpVaJGABBEYmFR9qhdW6Wc9hyQGiyVBa1MUsqwyNAdcBEln0iVObOE";
 const privateVapidKey = process.env.PRIVATE_VAPID_KEY;
 
+const cron = require('node-cron');
+const {Sequelize} = require("sequelize");
+const {generateAccessToken} = require("./jwt");
 
+cron.schedule('*/10 * * * * *', () => {
+    // console.log("cronjob running");
+    // send_notifications();
+});
+
+const send_notifications = async function () {
+    const reminders = await Reminder.findAll({
+        where: {
+            date: {
+                [Sequelize.Op.gte]: new Date(new Date() - (60 * 1000))
+            }
+        }
+    });
+    console.log(reminders);
+    for (let reminder of reminders) {
+        const patient = await Patient.findByPk(reminder.patient_id);
+        const doctorPatient = await DoctorPatient.findOne({
+            where: {
+                patient_id: patient.id
+            }
+        });
+        await send_push(doctorPatient.doctor_id, "notification", reminder.reminder);
+    }
+}
 const get_patient_prescriptions = async function (patient_id) {
     const prescriptions = await PatientPrescription.findAll({
         where: {
@@ -55,10 +82,29 @@ const get_patient_overview = async function (patient_id) {
     return {patient, conditions};
 }
 
-const signup = function (name, phoneNumber, role) {
-    return Account.create({
-        name: name, phone_number: phoneNumber, role: role
-    })
+const login = async function (username, password) {
+    const credentials = await Credentials.findOne({
+        where: {
+            username: username,
+            password: password
+        }
+    });
+    const account = await Account.findByPk(credentials.account_id);
+    if (credentials) {
+        return generateAccessToken({account_id: credentials.account_id, role: account.role});
+    } else {
+        return -1;
+    }
+}
+
+const signup = async function (username, password, role, name, phone_number) {
+    const account = await Account.create({
+        name: name, phone_number: phone_number, role: role
+    });
+    const credentials = await Credentials.create({
+        account_id: account.id, username: username, password: password
+    });
+    return generateAccessToken({account_id: account.id, role: role});
 }
 
 const record_heart_rate = async function (data) {
@@ -164,9 +210,15 @@ const get_temperature = async function (account_id) {
     }
 }
 
-const add_notes = async function (patient_id, note, image) {
+const add_notes = async function (account_id, patient_id, note, image, note_title) {
+    const account = await Account.findByPk(account_id);
     const record = Note.build({
-        patient_id: patient_id, note: note, picture: image, created_at: new Date()
+        patient_id: patient_id,
+        note: note,
+        image: image,
+        created_at: new Date(),
+        note_title: note_title,
+        sender_name: account.name
     });
     try {
         await record.save()
@@ -224,6 +276,14 @@ const get_patients_list = async function (account_id) {
         for (let record of records) {
             const patient = await Patient.findByPk(record.patient_id);
             patients.push(patient);
+        }
+        for(const patient of patients) {
+            const conditions = await PatientCondition.findAll({
+                where: {
+                    patient_id: patient.id
+                }
+            });
+            patient.dataValues.conditions = conditions;
         }
         return patients;
     } catch (err) {
@@ -291,7 +351,7 @@ const subscribe_push = async function (account_id, subscription) {
     })
 }
 
-const send_push = async function (account_id) {
+const send_push = async function (account_id, title, body) {
     try {
         const subscription = await PushSubscription.findOne({
             where: {
@@ -320,7 +380,10 @@ const send_push = async function (account_id) {
             isAlwaysUseFCM: false,
         };
         const push = new PushNotifications(settings);
-        const payload = {title: "Notification from Knock"};
+        const payload = {title: title,
+        options: {
+            body: body
+        }};
         push.send(subscription_object, payload, (err, result) => {
             if (err) {
                 console.log(err);
@@ -355,5 +418,6 @@ module.exports = {
     get_reminders,
     delete_reminder,
     subscribe_push,
-    send_push
+    send_push,
+    login
 }
