@@ -89,9 +89,16 @@ const login = async function (username, password) {
             password: password
         }
     });
+    if (!credentials) {
+        return -1;
+    }
     const account = await Account.findByPk(credentials.account_id);
     if (credentials) {
-        return generateAccessToken({account_id: credentials.account_id, role: account.role});
+        return {
+            token: generateAccessToken({account_id: credentials.account_id, role: account.role}),
+            account_id: credentials.account_id,
+            role: account.role
+        };
     } else {
         return -1;
     }
@@ -104,7 +111,11 @@ const signup = async function (username, password, role, name, phone_number) {
     const credentials = await Credentials.create({
         account_id: account.id, username: username, password: password
     });
-    return generateAccessToken({account_id: account.id, role: role});
+    return {
+        token: generateAccessToken({account_id: credentials.account_id, role: account.role}),
+        account_id: credentials.account_id,
+        role: account.role
+    };
 }
 
 const record_heart_rate = async function (data) {
@@ -277,7 +288,7 @@ const get_patients_list = async function (account_id) {
             const patient = await Patient.findByPk(record.patient_id);
             patients.push(patient);
         }
-        for(const patient of patients) {
+        for (const patient of patients) {
             const conditions = await PatientCondition.findAll({
                 where: {
                     patient_id: patient.id
@@ -380,10 +391,12 @@ const send_push = async function (account_id, title, body) {
             isAlwaysUseFCM: false,
         };
         const push = new PushNotifications(settings);
-        const payload = {title: title,
-        options: {
-            body: body
-        }};
+        const payload = {
+            title: title,
+            options: {
+                body: body
+            }
+        };
         push.send(subscription_object, payload, (err, result) => {
             if (err) {
                 console.log(err);
