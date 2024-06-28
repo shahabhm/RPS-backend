@@ -10,6 +10,7 @@ DROP TABLE IF EXISTS patient_prescription;
 DROP TABLE IF EXISTS reminder;
 DROP TABLE IF EXISTS push_subscription;
 DROP TABLE IF EXISTS patient;
+DROP TABLE IF EXISTS credentials;
 DROP TABLE IF EXISTS account;
 
 CREATE TABLE account
@@ -105,8 +106,10 @@ CREATE TABLE note
     id         SERIAL PRIMARY KEY,
     patient_id INTEGER REFERENCES patient (id),
     note       TEXT      NOT NULL,
---     image BYTEA,
-    created_at TIMESTAMP NOT NULL
+    image      TEXT,
+    created_at TIMESTAMP NOT NULL,
+    sender_name VARCHAR(255) NOT NULL,
+    note_title VARCHAR(255) NOT NULL
 );
 
 CREATE TABLE patient_condition
@@ -157,4 +160,12 @@ CREATE TABLE push_subscription
     endpoint   TEXT NOT NULL,
     p256dh     TEXT NOT NULL,
     auth       TEXT NOT NULL
+);
+
+CREATE TABLE credentials
+(
+    account_id INTEGER REFERENCES account (id) UNIQUE,
+    username   TEXT NOT NULL,
+    password   TEXT NOT NULL,
+    PRIMARY KEY (account_id)
 );

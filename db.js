@@ -69,7 +69,9 @@ const Temperature = sequelize.define('Temperature', {
 const Note = sequelize.define('Note', {
     patient_id: {type: DataTypes.STRING},
     note: {type: DataTypes.STRING},
-    // picture: { type: DataTypes. },
+    image: { type: DataTypes.STRING},
+    sender_name: {type: DataTypes.STRING},
+    note_title: {type: DataTypes.STRING},
     created_at: {type: DataTypes.TIME}
 }, {
     primaryKey: true, tableName: 'note', createdAt: false, updatedAt: false
@@ -116,6 +118,14 @@ const PushSubscription = sequelize.define('PushSubscription', {
     primaryKey: true, tableName: 'push_subscription', createdAt: false, updatedAt: false
 });
 
+const Credentials = sequelize.define('Credentials', {
+    account_id: {type: DataTypes.INTEGER, primaryKey: true},
+    username: {type: DataTypes.STRING},
+    password: {type: DataTypes.STRING}
+}, {
+    primaryKey: true, tableName: 'credentials', createdAt: false, updatedAt: false
+});
+
 const healthCheck = async function () {
     try {
         await sequelize.authenticate();
@@ -138,5 +148,6 @@ module.exports = {
     Patient,
     DoctorPatient,
     Reminder,
-    PushSubscription
+    PushSubscription,
+    Credentials
 }
