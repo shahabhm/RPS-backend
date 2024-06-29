@@ -36,7 +36,8 @@ app.post('/signup', async(req, res) => {
 
 app.post('/register_patient', authenticateToken, async (req, res) => {
     const {name, height, age, city, conditions, birthdate} = req.body;
-    await handlers.register_patient(req.user, name, age, height, conditions, city, birthdate);
+    const response = await handlers.register_patient(req.user, name, age, height, conditions, city, birthdate);
+    res.send(response);
 })
 
 app.post('/send_heart_rate', (req, res) => {

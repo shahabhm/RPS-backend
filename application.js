@@ -97,7 +97,8 @@ const login = async function (username, password) {
         return {
             token: generateAccessToken({account_id: credentials.account_id, role: account.role}),
             account_id: credentials.account_id,
-            role: account.role
+            role: account.role,
+            name: account.name
         };
     } else {
         return -1;
@@ -271,6 +272,9 @@ const register_patient = async function (user, name, age, height, conditions) {
             doctor_id: user.account_id, patient_id: patient.id
         });
         await doctorPatient.save();
+        return {
+            id: patient.id,
+        }
     } catch (err) {
         console.error(err);
     }
