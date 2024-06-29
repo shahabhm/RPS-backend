@@ -278,15 +278,20 @@ const register_patient = async function (user, name, age, height, conditions) {
 
 const get_patients_list = async function (account_id) {
     try {
-        const records = await DoctorPatient.findAll({
-            where: {
-                doctor_id: account_id
+        const account = await Account.findByPk(account_id);
+        let patients = [];
+        if (account.role === "DOCTOR") {
+            patients = await Patient.findAll();
+        } else {
+            const records = await DoctorPatient.findAll({
+                where: {
+                    doctor_id: account_id
+                }
+            });
+            for (let record of records) {
+                const patient = await Patient.findByPk(record.patient_id);
+                patients.push(patient);
             }
-        });
-        const patients = [];
-        for (let record of records) {
-            const patient = await Patient.findByPk(record.patient_id);
-            patients.push(patient);
         }
         for (const patient of patients) {
             const conditions = await PatientCondition.findAll({
