@@ -27,56 +27,53 @@ const PatientCondition = sequelize.define('PatientCondition', {
     primaryKey: true, tableName: 'patient_condition', createdAt: false, updatedAt: false
 })
 
-const HeartRate = sequelize.define('HeartRate', {
+const Parameter = sequelize.define('Paramter', {
     patient_id: {
         type: DataTypes.STRING
     },
-    heart_rate: {
+    parameter: {
+        type: DataTypes.STRING,
+    },
+    value: {
+        type: DataTypes.INTEGER,
+    },
+    value: {
         type: DataTypes.INTEGER
     },
     created_at: {
         type: DataTypes.TIME
     }
 }, {
-    primaryKey: true, tableName: 'heart_rate', createdAt: false, updatedAt: false
+    primaryKey: true, tableName: 'parameter', createdAt: false, updatedAt: false
 });
 
-const SPO = sequelize.define('SPO', {
-    patient_id: {type: DataTypes.STRING},
-    spo2: {type: DataTypes.INTEGER},
-    created_at: {type: DataTypes.TIME}
+const ParameterLimit = sequelize.define('ParameterLimit', {
+    patient_id: {
+        type: DataTypes.STRING, primaryKey: true
+    },
+    parameter: {
+        type: DataTypes.STRING, primaryKey: true
+    },
+    lower_limit: {
+        type: DataTypes.INTEGER
+    },
+    upper_limit: {
+        type: DataTypes.INTEGER
+    }
 }, {
-    primaryKey: true, tableName: 'spo', createdAt: false, updatedAt: false
-});
-
-const Location = sequelize.define('Location', {
-    patient_id: {type: DataTypes.STRING},
-    latitude: {type: DataTypes.DOUBLE},
-    longitude: {type: DataTypes.DOUBLE},
-    created_at: {type: DataTypes.TIME}
-}, {
-    primaryKey: true, tableName: 'location', createdAt: false, updatedAt: false
-});
-
-const Temperature = sequelize.define('Temperature', {
-    patient_id: {type: DataTypes.STRING},
-    temperature: {type: DataTypes.DOUBLE},
-    created_at: {type: DataTypes.TIME}
-}, {
-    primaryKey: true, tableName: 'temperature', createdAt: false, updatedAt: false
+    primaryKey: false, tableName: 'parameter_limit', createdAt: false, updatedAt: false
 });
 
 const Note = sequelize.define('Note', {
     patient_id: {type: DataTypes.STRING},
     note: {type: DataTypes.STRING},
-    image: { type: DataTypes.STRING},
+    image: {type: DataTypes.STRING},
     sender_name: {type: DataTypes.STRING},
     note_title: {type: DataTypes.STRING},
     created_at: {type: DataTypes.TIME}
 }, {
     primaryKey: true, tableName: 'note', createdAt: false, updatedAt: false
 });
-
 
 const Patient = sequelize.define('Patient', {
     age: {type: DataTypes.INTEGER},
@@ -139,15 +136,13 @@ module.exports = {
     healthCheck,
     PatientPrescription,
     Account,
-    HeartRate,
-    SPO,
-    Location,
-    Temperature,
+    Parameter,
     Note,
     PatientCondition,
     Patient,
     DoctorPatient,
     Reminder,
     PushSubscription,
-    Credentials
+    Credentials,
+    ParameterLimit,
 }

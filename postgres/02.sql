@@ -1,7 +1,5 @@
-DROP TABLE IF EXISTS heart_rate;
-DROP TABLE IF EXISTS spo;
-DROP TABLE IF EXISTS temperature;
-DROP TABLE IF EXISTS location;
+DROP TABLE IF EXISTS parameter_limit;
+DROP TABLE IF EXISTS parameter;
 DROP TABLE IF EXISTS note;
 DROP TABLE IF EXISTS patient_condition;
 DROP TABLE IF EXISTS doctor_patient;
@@ -32,11 +30,12 @@ CREATE TABLE patient
 INSERT INTO patient (age, height, name)
 values (24, 180, 'Shahab');
 
-CREATE TABLE heart_rate
+CREATE TABLE parameter
 (
     id         SERIAL PRIMARY KEY,
     patient_id INTEGER REFERENCES patient (id),
-    heart_rate INTEGER   NOT NULL,
+    parameter  varchar(255),
+    value      INTEGER   NOT NULL,
     created_at TIMESTAMP NOT NULL
 );
 
@@ -45,71 +44,22 @@ VALUES ('Bob', '123-456-7891', 'DOCTOR');
 INSERT INTO account (name, phone_number, role)
 VALUES ('Charlie', '123-456-7892', 'CAREGIVER');
 
-INSERT INTO heart_rate (patient_id, heart_rate, created_at)
-VALUES (1, 60, '2018-03-09 11:00:00.000');
-INSERT INTO heart_rate (patient_id, heart_rate, created_at)
-VALUES (1, 70, '2018-03-09 11:01:00.000');
-INSERT INTO heart_rate (patient_id, heart_rate, created_at)
-VALUES (1, 80, '2018-03-09 11:02:00.000');
-
-
-
-CREATE TABLE spo
-(
-    id         SERIAL PRIMARY KEY,
-    patient_id INTEGER REFERENCES patient (id),
-    spo2       FLOAT     NOT NULL,
-    created_at TIMESTAMP NOT NULL
-);
-
-INSERT INTO spo (patient_id, spo2, created_at)
-VALUES (1, 10, '2018-03-09 11:00:00.000');
-INSERT INTO spo (patient_id, spo2, created_at)
-VALUES (1, 11, '2018-03-09 11:00:01.000');
-INSERT INTO spo (patient_id, spo2, created_at)
-VALUES (1, 12, '2018-03-09 11:00:02.000');
-
-
-CREATE TABLE temperature
-(
-    id          SERIAL PRIMARY KEY,
-    patient_id  INTEGER REFERENCES patient (id),
-    temperature FLOAT     NOT NULL,
-    created_at  TIMESTAMP NOT NULL
-);
-
-INSERT INTO temperature (patient_id, temperature, created_at)
-VALUES (1, 38, '2018-03-09 11:00:00.000');
-INSERT INTO temperature (patient_id, temperature, created_at)
-VALUES (1, 39, '2018-03-09 11:00:01.000');
-INSERT INTO temperature (patient_id, temperature, created_at)
-VALUES (1, 40, '2018-03-09 11:00:02.000');
-
-CREATE TABLE location
-(
-    id         SERIAL PRIMARY KEY,
-    patient_id INTEGER REFERENCES patient (id),
-    latitude   FLOAT     NOT NULL,
-    longitude  FLOAT     NOT NULL,
-    created_at TIMESTAMP NOT NULL
-);
-
-INSERT INTO location (patient_id, latitude, longitude, created_at)
-VALUES (1, 38, 53, '2018-03-09 11:00:00.000');
-INSERT INTO location (patient_id, latitude, longitude, created_at)
-VALUES (1, 38, 53, '2018-03-09 11:00:01.000');
-INSERT INTO location (patient_id, latitude, longitude, created_at)
-VALUES (1, 38, 53, '2018-03-09 11:00:02.000');
+INSERT INTO parameter (patient_id, value, parameter, created_at)
+VALUES (1, 60, 'HEART_RATE', '2018-03-09 11:00:00.000');
+INSERT INTO parameter (patient_id, value, parameter, created_at)
+VALUES (1, 70, 'HEART_RATE', '2018-03-09 11:01:00.000');
+INSERT INTO parameter (patient_id, value, parameter, created_at)
+VALUES (1, 80, 'HEART_RATE', '2018-03-09 11:02:00.000');
 
 CREATE TABLE note
 (
-    id         SERIAL PRIMARY KEY,
-    patient_id INTEGER REFERENCES patient (id),
-    note       TEXT      NOT NULL,
-    image      TEXT,
-    created_at TIMESTAMP NOT NULL,
+    id          SERIAL PRIMARY KEY,
+    patient_id  INTEGER REFERENCES patient (id),
+    note        TEXT         NOT NULL,
+    image       TEXT,
+    created_at  TIMESTAMP    NOT NULL,
     sender_name VARCHAR(255) NOT NULL,
-    note_title VARCHAR(255) NOT NULL
+    note_title  VARCHAR(255) NOT NULL
 );
 
 CREATE TABLE patient_condition
@@ -168,4 +118,13 @@ CREATE TABLE credentials
     username   TEXT NOT NULL,
     password   TEXT NOT NULL,
     PRIMARY KEY (account_id)
+);
+
+CREATE TABLE parameter_limit
+(
+    patient_id  INTEGER REFERENCES patient (id),
+    parameter   VARCHAR(255) NOT NULL,
+    lower_limit INTEGER      NOT NULL,
+    upper_limit INTEGER      NOT NULL,
+    PRIMARY KEY (patient_id, parameter)
 );
