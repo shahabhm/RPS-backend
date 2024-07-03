@@ -1,30 +1,22 @@
 const PushNotifications = require("node-pushnotifications");
 const {
-    Account, HeartRate, SPO, Location, Temperature, Note, PatientCondition, Patient, DoctorPatient,
-    PatientPrescription, Reminder, PushSubscription, Credentials
+    Account, Parameter, Note, PatientCondition, Patient, DoctorPatient,
+    PatientPrescription, Reminder, PushSubscription, Credentials, ParameterLimit
 } = require('./db')
 
 const publicVapidKey = "BDOLcqQ0rm4DNNyx-L8glLEqWkpnIsgzFkpVaJGABBEYmFR9qhdW6Wc9hyQGiyVBa1MUsqwyNAdcBEln0iVObOE";
 const privateVapidKey = process.env.PRIVATE_VAPID_KEY;
 
 const cron = require('node-cron');
-const {Sequelize} = require("sequelize");
 const {generateAccessToken} = require("./jwt");
 
 cron.schedule('*/10 * * * * *', () => {
-    // console.log("cronjob running");
-    // send_notifications();
+    console.log("cronjob running");
+    send_notifications();
 });
 
 const send_notifications = async function () {
-    const reminders = await Reminder.findAll({
-        where: {
-            date: {
-                [Sequelize.Op.gte]: new Date(new Date() - (60 * 1000))
-            }
-        }
-    });
-    console.log(reminders);
+    const reminders = await Reminder.findAll();
     for (let reminder of reminders) {
         const patient = await Patient.findByPk(reminder.patient_id);
         const doctorPatient = await DoctorPatient.findOne({
@@ -32,7 +24,10 @@ const send_notifications = async function () {
                 patient_id: patient.id
             }
         });
-        await send_push(doctorPatient.doctor_id, "notification", reminder.reminder);
+        await send_push(doctorPatient.doctor_id, reminder.reminder, 'notification');
+    }
+    for (let reminder of reminders) {
+        reminder.destroy();
     }
 }
 const get_patient_prescriptions = async function (patient_id) {
@@ -90,7 +85,7 @@ const login = async function (username, password) {
         }
     });
     if (!credentials) {
-        return -1;
+        return {error: "not found"}
     }
     const account = await Account.findByPk(credentials.account_id);
     if (credentials) {
@@ -100,8 +95,6 @@ const login = async function (username, password) {
             role: account.role,
             name: account.name
         };
-    } else {
-        return -1;
     }
 }
 
@@ -119,109 +112,90 @@ const signup = async function (username, password, role, name, phone_number) {
     };
 }
 
-const record_heart_rate = async function (data) {
-    const {account_id, heart_rate} = data
-    const record = HeartRate.build({
-        account_id: account_id, heart_rate: heart_rate, created_at: new Date()
+const send_parameter = async function (patient_id, parameter, value, date) {
+    const record = Parameter.build({
+        patient_id: patient_id, parameter: parameter, value: value, created_at: new Date(date)
     });
     try {
         await record.save()
+        check_parameter(patient_id, parameter, value);
+        return "OK"
+    } catch (err) {
+        console.error(err)
+        return "ERROR"
+    }
+}
+
+const check_parameter = async function (patient_id, parameter, value) {
+    const parameter_limit = await ParameterLimit.findOne({
+        where: {
+            patient_id: patient_id,
+            parameter: parameter
+        }
+    });
+    if (value < parameter_limit?.lower_limit || value > parameter_limit?.upper_limit) {
+        const doctors = await DoctorPatient.findAll({
+            where: {
+                patient_id: patient_id
+            }
+        });
+        for (let doctor of doctors) {
+            send_push(doctor.doctor_id, 'parameter out of range', 'test body');
+        }
+    }
+}
+
+const get_patient_parameters = async function (patient_id) {
+    try {
+        const records = await Parameter.findAll({
+            where: {
+                patient_id: patient_id
+            }, order: ['created_at'],
+        })
+        const parameter_names = new Set();
+        for (let record of records) {
+            parameter_names.add(record.parameter);
+        }
+        return {parameters: [...parameter_names]};
     } catch (err) {
         console.error(err)
     }
 }
 
-const get_heart_rate = async function (patient_id) {
+const get_patient_parameter = async function (patient_id, parameter) {
     try {
-        const records = await HeartRate.findAll({
+        const parameters = await Parameter.findAll({
             where: {
+                parameter: parameter,
                 patient_id: patient_id,
             }, order: ['created_at'],
-        })
-        return records;
+        });
+        const parameter_limits = await ParameterLimit.findOne(
+            {
+                where: {
+                    parameter: parameter,
+                    patient_id: patient_id
+                }
+            }
+        );
+        const response = {
+            parameters, parameter_limits
+        };
+        return response;
     } catch (err) {
         console.error(err)
     }
 }
 
-const record_spo = async function (account_id, spo) {
-    const record = SPO.build({
-        account_id: account_id, spo2: spo, created_at: new Date()
-    });
+const set_parameter_limits = async function (patient_id, parameter, lower_limit, upper_limit) {
     try {
-        await record.save()
-        return "OK"
-    } catch (err) {
-        console.error(err)
-        return "ERROR"
+        ParameterLimit.upsert({
+            patient_id: patient_id, parameter: parameter, lower_limit: lower_limit, upper_limit: upper_limit
+        });
+    } catch (e) {
+        console.log(e)
     }
 }
-
-const get_spo = async function (account_id) {
-    try {
-        const records = await SPO.findAll({
-            where: {
-                account_id: account_id
-            }, order: ['created_at'],
-        })
-        return records;
-    } catch (err) {
-        console.error(err)
-    }
-}
-
-const send_location = async function (account_id, latitude, longitude) {
-    const location = Location.build({
-        account_id: account_id, latitude: latitude, longitude: longitude, created_at: new Date()
-    });
-    try {
-        await location.save()
-        return "OK"
-    } catch (err) {
-        console.error(err);
-        return "ERROR"
-    }
-}
-
-const get_location = async function (account_id) {
-    try {
-        const records = await Location.findAll({
-            where: {
-                account_id: account_id
-            }, order: ['created_at'],
-        })
-        return records;
-    } catch (err) {
-        console.error(err)
-    }
-}
-
-const send_temperature = async function (account_id, temperature) {
-    const record = Temperature.build({
-        account_id: account_id, temperature: temperature, created_at: new Date()
-    });
-    try {
-        await record.save()
-        return "OK"
-    } catch (err) {
-        console.error(err)
-        return "ERROR"
-    }
-}
-
-const get_temperature = async function (account_id) {
-    try {
-        const records = await Temperature.findAll({
-            where: {
-                account_id: account_id
-            }, order: ['created_at'],
-        })
-        return records;
-    } catch (err) {
-        console.error(err)
-    }
-}
-
 const add_notes = async function (account_id, patient_id, note, image, note_title) {
     const account = await Account.findByPk(account_id);
     const record = Note.build({
@@ -361,14 +335,14 @@ const delete_reminder = async function (reminder_id) {
 }
 
 const subscribe_push = async function (account_id, subscription) {
-    PushSubscription.upsert({
+    await PushSubscription.upsert({
         account_id: account_id,
         endpoint: subscription.endpoint,
         p256dh: subscription.keys.p256dh,
         auth: subscription.keys.auth
     }).catch(err => {
         console.error(err);
-    })
+    });
 }
 
 const send_push = async function (account_id, title, body) {
@@ -378,6 +352,9 @@ const send_push = async function (account_id, title, body) {
                 account_id: account_id
             }
         });
+        if (!subscription) {
+            return;
+        }
         const subscription_object = {
             endpoint: subscription.endpoint,
             keys: {
@@ -402,11 +379,9 @@ const send_push = async function (account_id, title, body) {
         const push = new PushNotifications(settings);
         const payload = {
             title: title,
-            options: {
-                body: body
-            }
+            body: body
         };
-        push.send(subscription_object, payload, (err, result) => {
+        await push.send(subscription_object, payload, (err, result) => {
             if (err) {
                 console.log(err);
             } else {
@@ -419,14 +394,7 @@ const send_push = async function (account_id, title, body) {
 }
 module.exports = {
     signup,
-    record_heart_rate,
-    get_heart_rate,
-    get_spo,
-    record_spo,
-    send_location,
-    get_location,
-    get_temperature,
-    send_temperature,
+    get_patient_parameter,
     add_notes,
     get_notes,
     register_patient,
@@ -441,5 +409,8 @@ module.exports = {
     delete_reminder,
     subscribe_push,
     send_push,
-    login
+    login,
+    send_parameter,
+    get_patient_parameters,
+    set_parameter_limits,
 }
