@@ -53,19 +53,20 @@ const delete_prescription = async function (patient_id, prescription) {
 
 }
 
-const add_prescription = async function (patient_id, prescriptions) {
-    for (let prescription of prescriptions) {
+const add_prescription = async function (patient_id, prescription, dosage, amount) {
+    try {
         const record = PatientPrescription.build({
             patient_id: patient_id,
-            prescription: prescription.value
+            prescription: prescription.value,
+            dosage: dosage,
+            amount: amount
         });
-        try {
-            await record.save()
-        } catch (err) {
-            console.error(err)
-        }
+        await record.save()
+    } catch (err) {
+        console.error(err)
     }
 }
+
 
 const get_patient_overview = async function (patient_id) {
     const patient = await Patient.findByPk(patient_id);

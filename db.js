@@ -92,7 +92,9 @@ const DoctorPatient = sequelize.define('DoctorPatient', {
 
 const PatientPrescription = sequelize.define('PatientPrescription', {
     patient_id: {type: DataTypes.INTEGER, primaryKey: true},
-    prescription: {type: DataTypes.STRING, primaryKey: true}
+    prescription: {type: DataTypes.STRING, primaryKey: true},
+    dosage: {type: DataTypes.STRING},
+    amount: {type: DataTypes.INTEGER}
 }, {
     primaryKey: false, tableName: 'patient_prescription', createdAt: false, updatedAt: false
 });

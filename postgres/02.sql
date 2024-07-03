@@ -87,6 +87,8 @@ CREATE TABLE patient_prescription
 (
     patient_id   INTEGER REFERENCES patient (id),
     prescription TEXT NOT NULL,
+    dosage  TEXT NOT NULL,
+    amount  INTEGER NOT NULL,
     PRIMARY KEY (patient_id, prescription)
 );
 

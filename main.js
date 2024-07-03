@@ -211,8 +211,8 @@ app.post('/get_prescriptions', authenticateToken, async (req, res) => {
 });
 
 app.post('/add_prescription', authenticateToken, async (req, res) => {
-    const {patient_id, prescriptions} = req.body;
-    const response = await handlers.add_prescription(patient_id, prescriptions);
+    const {patient_id, prescriptions, dosage, amount} = req.body;
+    const response = await handlers.add_prescription(patient_id, prescriptions, dosage, amount);
     res.send(response);
 });
 
