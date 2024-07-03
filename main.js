@@ -90,7 +90,7 @@ app.post('/get_patient_status', async (req, res) => {
 });
 
 app.post('/add_notes', upload.single("image"), async (req, res) => {
-    const image = req.file.filename;
+    const image = req.file?.filename;
     const {patient_id, note, note_title} = req.body;
     const response = await handlers.add_notes('1', patient_id, note, image, note_title);
     res.send(response);

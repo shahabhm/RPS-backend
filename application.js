@@ -9,6 +9,7 @@ const privateVapidKey = process.env.PRIVATE_VAPID_KEY;
 
 const cron = require('node-cron');
 const {generateAccessToken} = require("./jwt");
+const {Op} = require("sequelize");
 
 cron.schedule('*/10 * * * * *', () => {
     console.log("cronjob running");
@@ -16,7 +17,15 @@ cron.schedule('*/10 * * * * *', () => {
 });
 
 const send_notifications = async function () {
-    const reminders = await Reminder.findAll();
+    const reminders = await Reminder.findAll(
+        {
+            where: {
+                date: {
+                    [Op.gte]: new Date()
+                }
+            }
+        }
+    );
     for (let reminder of reminders) {
         const patient = await Patient.findByPk(reminder.patient_id);
         const doctorPatient = await DoctorPatient.findOne({
