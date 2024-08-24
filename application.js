@@ -1,348 +1,265 @@
 const PushNotifications = require("node-pushnotifications");
-const {
-    Account, Parameter, Note, PatientCondition, Patient, DoctorPatient,
-    PatientPrescription, Reminder, PushSubscription, Credentials, ParameterLimit
-} = require('./db')
-
+const {Account, Hospital, Patient, Condition, Medicine, PatientMedicine, Briefing, Parameter, Prescription, Doctor, Reservation} = require("./mongo");
+const errors = require('./errors');
 const publicVapidKey = "BDOLcqQ0rm4DNNyx-L8glLEqWkpnIsgzFkpVaJGABBEYmFR9qhdW6Wc9hyQGiyVBa1MUsqwyNAdcBEln0iVObOE";
 const privateVapidKey = process.env.PRIVATE_VAPID_KEY;
 
 const cron = require('node-cron');
 const {generateAccessToken} = require("./jwt");
-const {Op} = require("sequelize");
+const {PATIENT_PARAMETERS} = require("./constants");
 
 cron.schedule('*/10 * * * * *', () => {
-    console.log("cronjob running");
+    // console.log("cronjob running");
     send_notifications();
 });
 
-const send_notifications = async function () {
-    const reminders = await Reminder.findAll(
-        {
-            where: {
-                date: {
-                    [Op.gte]: new Date()
-                }
-            }
-        }
-    );
-    for (let reminder of reminders) {
-        const patient = await Patient.findByPk(reminder.patient_id);
-        const doctorPatient = await DoctorPatient.findOne({
-            where: {
-                patient_id: patient.id
-            }
-        });
-        await send_push(doctorPatient.doctor_id, reminder.reminder, 'notification');
-    }
-    for (let reminder of reminders) {
-        reminder.destroy();
-    }
-}
-const get_patient_prescriptions = async function (patient_id) {
-    const prescriptions = await PatientPrescription.findAll({
-        where: {
-            patient_id: patient_id
-        }
-    });
-    return prescriptions;
-}
-
-const delete_prescription = async function (patient_id, prescription) {
-    try {
-        await PatientPrescription.destroy({
-            where: {
-                patient_id: patient_id,
-                prescription: prescription
-            }
-        });
-    } catch (err) {
-        console.error(err)
-    }
-
-}
-
-const add_prescription = async function (patient_id, prescription, dosage, amount) {
-    try {
-        const record = PatientPrescription.build({
-            patient_id: patient_id,
-            prescription: prescription.value,
-            dosage: dosage,
-            amount: amount
-        });
-        await record.save()
-    } catch (err) {
-        console.error(err)
-    }
-}
-
-
-const get_patient_overview = async function (patient_id) {
-    const patient = await Patient.findByPk(patient_id);
-    const conditions = await PatientCondition.findAll({
-        where: {
-            patient_id: patient_id
-        }
-    });
-    return {patient, conditions};
-}
-
-const login = async function (username, password) {
-    const credentials = await Credentials.findOne({
-        where: {
-            username: username,
-            password: password
-        }
-    });
-    if (!credentials) {
-        return {error: "not found"}
-    }
-    const account = await Account.findByPk(credentials.account_id);
-    if (credentials) {
-        return {
-            token: generateAccessToken({account_id: credentials.account_id, role: account.role}),
-            account_id: credentials.account_id,
-            role: account.role,
-            name: account.name
-        };
-    }
-}
-
-const signup = async function (username, password, role, name, phone_number) {
-    const account = await Account.create({
-        name: name, phone_number: phone_number, role: role
-    });
-    const credentials = await Credentials.create({
-        account_id: account.id, username: username, password: password
-    });
+const generate_token = function (account) {
     return {
-        token: generateAccessToken({account_id: credentials.account_id, role: account.role}),
-        account_id: credentials.account_id,
-        role: account.role
-    };
+        token: generateAccessToken({account_id: account._id, role: account.role}),
+        account_id: account.account_id,
+        role: account.role,
+    };}
+
+
+const login = async function (phone_number, password) {
+    const account = await Account.findOne({phone_number: phone_number, password: password});
+    if (!account) {
+        throw new Error('USER_NOT_FOUND');
+    }
+    return generate_token(account);
 }
 
-const send_parameter = async function (patient_id, parameter, value, date) {
-    const record = Parameter.build({
-        patient_id: patient_id, parameter: parameter, value: value, created_at: new Date(date)
+const signup_mobile = async function (phone_number, password) {
+    const existing_account = await Account.findOne({phone_number: phone_number});
+    if (existing_account) {
+        throw new Error('USER_ALREADY_EXISTS');
+    }
+    const account = new Account({
+        phone_number: phone_number,
+        password: password,
+        role: 'patient',
+        otp: '12345'
+    });
+    await account.save();
+    return account;
+}
+
+const confirm_otp = async function (phone_number, otp) {
+    const account = await Account.findOne({phone_number: phone_number});
+    if (!account) {
+        throw new Error(errors.USER_NOT_FOUND.error_code);
+    }
+    if (account.otp !== otp) {
+        throw new Error(errors.INVALID_OTP.error_code);
+    }
+    account.otp = '';
+    account.confirmation = true;
+    await account.save();
+    return generate_token(account);
+}
+
+const forget_password = async function(phone_number) {
+    const account = await Account.findOne({phone_number: phone_number});
+    if (!account) {
+        throw new Error(errors.USER_NOT_FOUND.error_code);
+    }
+    account.otp = '12345';
+    await account.save();
+    return;
+}
+
+const reset_password = async function (account_id, password) {
+    const account = await Account.findOne({_id: account_id});
+    if (!account) {
+        throw new Error(errors.USER_NOT_FOUND.error_code);
+    }
+    account.password = password;
+    await account.save();
+}
+
+const register_new = async function (first_name, last_name, national_code, city, gender, birthdate, weight, height, blood_type) {
+    const patient = new Patient({
+        first_name,
+        last_name,
+        national_code,
+        city,
+        gender,
+        birthdate,
+        weight,
+        height,
+        blood_type
+    });
+    await patient.save();
+    return {result: "OK"};
+}
+
+const get_condition_names = async function () {
+    const condition_names = await Condition.find({}, {_id: 0});
+    return condition_names;
+}
+
+const get_medicines_names = async function () {
+    const medicine_names = await Medicine.find({}, {_id: 0});
+    return medicine_names;
+}
+
+const add_briefing = async function (patient_id, doctor_id, description) {
+    const record = new Briefing({
+        patient_id: patient_id, doctor_id: doctor_id, description: description
     });
     try {
-        await record.save()
-        check_parameter(patient_id, parameter, value);
-        return "OK"
-    } catch (err) {
-        console.error(err)
-        return "ERROR"
-    }
-}
-
-const check_parameter = async function (patient_id, parameter, value) {
-    const parameter_limit = await ParameterLimit.findOne({
-        where: {
-            patient_id: patient_id,
-            parameter: parameter
-        }
-    });
-    if (value < parameter_limit?.lower_limit || value > parameter_limit?.upper_limit) {
-        const doctors = await DoctorPatient.findAll({
-            where: {
-                patient_id: patient_id
-            }
-        });
-        for (let doctor of doctors) {
-            send_push(doctor.doctor_id, 'parameter out of range', 'test body');
-        }
-    }
-}
-
-const get_patient_parameters = async function (patient_id) {
-    try {
-        const records = await Parameter.findAll({
-            where: {
-                patient_id: patient_id
-            }, order: ['created_at'],
-        })
-        const parameter_names = new Set();
-        for (let record of records) {
-            parameter_names.add(record.parameter);
-        }
-        return {parameters: [...parameter_names]};
+        await record.save();
+        return {result: "OK", record: record};
     } catch (err) {
         console.error(err)
     }
 }
 
-const get_patient_parameter = async function (patient_id, parameter) {
-    try {
-        const parameters = await Parameter.findAll({
-            where: {
-                parameter: parameter,
-                patient_id: patient_id,
-            }, order: ['created_at'],
-        });
-        const parameter_limits = await ParameterLimit.findOne(
-            {
-                where: {
-                    parameter: parameter,
-                    patient_id: patient_id
-                }
-            }
-        );
-        const response = {
-            parameters, parameter_limits
-        };
-        return response;
-    } catch (err) {
-        console.error(err)
-    }
+const update_briefing = async function (briefing_id, description) {
+    const briefing = await Briefing.findOne({_id: briefing_id});
+    briefing.description = description;
+    await briefing.save();
+    return {result: "OK", briefing};
 }
 
-const set_parameter_limits = async function (patient_id, parameter, lower_limit, upper_limit) {
-    try {
-        ParameterLimit.upsert({
-            patient_id: patient_id, parameter: parameter, lower_limit: lower_limit, upper_limit: upper_limit
-        });
-    } catch (e) {
-        console.log(e)
-    }
+const delete_briefing = async function (briefing_id) {
+    const briefing = await Briefing.findOneAndDelete({_id: briefing_id});
+    return {result: "OK", briefing};
 }
-const add_notes = async function (account_id, patient_id, note, image, note_title) {
-    const account = await Account.findByPk(account_id);
-    const record = Note.build({
-        patient_id: patient_id,
-        note: note,
-        image: image,
-        created_at: new Date(),
-        note_title: note_title,
-        sender_name: account.name
+
+const get_parameter_names = async function() {
+    return PATIENT_PARAMETERS;
+}
+
+const capture_parameter = async function (patient_id, parameter, value) {
+    const record = new Parameter({
+        patient_id: patient_id, parameter: parameter, value: value, created_at: new Date()
     });
     try {
-        await record.save()
-        return {
-            status: "OK",
-        }
-    } catch (err) {
-        console.error(err)
-        return {
-            status: "error"
-        }
-    }
-}
-
-const get_notes = async function (patient_id) {
-    try {
-        const records = await Note.findAll({
-            where: {
-                patient_id: patient_id
-            }, order: ['created_at'],
-        })
-        return records;
+        await record.save();
+        return {result: "OK", record};
     } catch (err) {
         console.error(err)
     }
 }
 
-const register_patient = async function (user, name, age, height, conditions) {
-    const record = Patient.build({
-        name: name, age: age, height: height
+const get_parameters = async function (patient_id) {
+    const parameters = await Parameter.find({
+        patient_id: patient_id
     });
-    try {
-        const patient = await record.save();
-        const patient_conditions = PatientCondition.build({
-            patient_id: patient.id, condition: conditions[0].value
-        });
-        await patient_conditions.save();
-        const doctorPatient = await DoctorPatient.build({
-            doctor_id: user.account_id, patient_id: patient.id
-        });
-        await doctorPatient.save();
-        return {
-            id: patient.id,
-        }
-    } catch (err) {
-        console.error(err);
-    }
+    return parameters;
 }
 
-const get_patients_list = async function (account_id) {
-    try {
-        const account = await Account.findByPk(account_id);
-        let patients = [];
-        if (account.role === "DOCTOR") {
-            patients = await Patient.findAll();
-        } else {
-            const records = await DoctorPatient.findAll({
-                where: {
-                    doctor_id: account_id
-                }
-            });
-            for (let record of records) {
-                const patient = await Patient.findByPk(record.patient_id);
-                patients.push(patient);
-            }
-        }
-        for (const patient of patients) {
-            const conditions = await PatientCondition.findAll({
-                where: {
-                    patient_id: patient.id
-                }
-            });
-            patient.dataValues.conditions = conditions;
-        }
-        return patients;
-    } catch (err) {
-        console.error(err)
-    }
+const add_prescription = async function (patient_id, doctor_id, medicines, note){
+    const prescription = new Prescription({patient_id, doctor_id, medicines, note});
+    await prescription.save();
+    return prescription;
 }
 
-const delete_note = async function (note_id) {
-    try {
-        await Note.destroy({
-            where: {
-                id: note_id
-            }
-        });
-    } catch (err) {
-        console.error(err)
-    }
-}
-
-const add_reminder = async function (patient_id, reminder, date) {
-    const record = Reminder.build({
-        patient_id: patient_id, reminder: reminder, date: date
+const add_patient_medicine = async function (patient_id, medicine, dosage, amount, unit, repeat, hours, with_food, notes) {
+    const record = PatientMedicine.build({
+        patient_id: patient_id, medicine: medicine, dosage: dosage, amount: amount, unit: unit, repeat: repeat, hours: hours, with_food: with_food, notes: notes
     });
     try {
         await record.save();
         return {result: "OK"};
     } catch (err) {
-        console.error(err)
+        console.error(err);
     }
 }
 
-const get_reminders = async function (patient_id) {
-    try {
-        const records = await Reminder.findAll({
-            where: {
-                patient_id: patient_id
-            }
-        });
-        return records;
-    } catch (err) {
-        console.error(err)
-    }
+const get_hospitals = async function (city, latitude, longitude) {
+    const hospitals = await Hospital.find({city: city});
+    return hospitals;
 }
 
-const delete_reminder = async function (reminder_id) {
-    try {
-        await Reminder.destroy({
-            where: {
-                id: reminder_id
-            }
-        });
-    } catch (err) {
-        console.error(err)
-    }
+const get_patient_medicines = async function (patient_id) {
+    const medicines = await PatientMedicine.find({
+        where: {
+            patient_id: patient_id
+        }
+    });
+    return medicines;
 }
+
+const edit_patient_medicine = async function (medicine_id, medicine, dosage, amount, unit, repeat, hours, with_food, notes) {
+    const record = await PatientMedicine.findByPk(medicine_id);
+    record.medicine = medicine;
+    record.dosage = dosage;
+    record.amount = amount;
+    record.unit = unit;
+    record.repeat = repeat;
+    record.hours = hours;
+    record.with_food = with_food;
+    record.notes = notes;
+    await record.save();
+    return {result: "OK"};
+}
+
+const remove_patient_medicine = async function (medicine_id) {
+    const record = await PatientMedicine.findByPk(medicine_id);
+
+}
+
+const get_doctors = async function (city, name, specialization) {
+    const filter = {};
+    if (city) filter.city = city;
+    if (name) filter.name = name;
+    if (specialization) filter.specialization = specialization;
+
+    const doctors = await Doctor.find(filter, {national_code: 0});
+    return doctors;
+}
+
+const get_available_times = async function (doctor_id, date) {
+    const doctor = await Doctor.findById(doctor_id);
+    const active_doctor_reservations = await Reservation.find({doctor_id: doctor_id, date: date});
+    const day_of_week = new Date(date).getDay();
+    const day_name = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'][day_of_week];
+    const schedule = doctor.schedule.find(s => s.day_of_week === day_name);
+    const available_times = [];
+    for (let hour = schedule.start_hour; hour < schedule.end_hour; hour++) {
+        for (let minute = 0; minute < 60; minute += doctor.session_time) {
+            if (active_doctor_reservations.find(r => r.time_slot === `${hour < 10 ? '0' : ''}${hour}:${minute < 10 ? '0' : ''}${minute}`)) {
+                continue;
+            }
+            available_times.push(`${hour < 10 ? '0' : ''}${hour}:${minute < 10 ? '0' : ''}${minute}`);
+        }
+    }
+    return available_times;
+}
+
+const reserve_time = async function (patient_id, doctor_id, date, time_slot) {
+    const doctor = await Doctor.findById(doctor_id);
+    const active_doctor_reservations = await Reservation.find({doctor_id: doctor_id, date: date, time_slot: time_slot});
+    if (active_doctor_reservations.length > 0) {
+        throw new Error('TIME_SLOT_NOT_AVAILABLE');
+    }
+    const day_of_week = new Date(date).getDay();
+    const day_name = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'][day_of_week];
+    const schedule = doctor.schedule.find(s => s.day_of_week === day_name);
+    const [hour, minute] = time_slot.split(':').map(Number);
+    if (hour < schedule.start_hour || hour >= schedule.end_hour) {
+        throw new Error('INVALID_TIME_SLOT');
+    }
+    if (minute % doctor.session_time !== 0) {
+        throw new Error('INVALID_TIME_SLOT');
+    }
+    const reservation = new Reservation({patient_id, doctor_id, date, time_slot});
+    await reservation.save();
+    return reservation;
+}
+
+const get_reservations = async function (patient_id) {
+    const reservations = await Reservation.find({ patient_id: patient_id })
+        .populate({
+            path: 'doctor_id',
+            select: 'first_name last_name specialization profile_picture',
+            as: 'doctor'
+        });
+    return reservations;
+}
+
 
 const subscribe_push = async function (account_id, subscription) {
     await PushSubscription.upsert({
@@ -403,24 +320,26 @@ const send_push = async function (account_id, title, body) {
     }
 }
 module.exports = {
-    signup,
-    get_patient_parameter,
-    add_notes,
-    get_notes,
-    register_patient,
-    get_patients_list,
-    get_patient_overview,
-    get_patient_prescriptions,
-    add_prescription,
-    delete_prescription,
-    delete_note,
-    add_reminder,
-    get_reminders,
-    delete_reminder,
     subscribe_push,
     send_push,
     login,
-    send_parameter,
-    get_patient_parameters,
-    set_parameter_limits,
+    signup_mobile,
+    confirm_otp,
+    forget_password,
+    reset_password,
+    register_new,
+    get_condition_names,
+    get_medicines_names,
+    add_briefing,
+    update_briefing,
+    delete_briefing,
+    capture_parameter,
+    get_parameters,
+    get_parameter_names,
+    add_prescription,
+    get_hospitals,
+    get_doctors,
+    get_available_times,
+    reserve_time,
+    get_reservations,
 }
