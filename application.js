@@ -60,9 +60,8 @@ const confirm_otp = async function (phone_number, otp) {
 
 const forget_password = async function(phone_number) {
     const account = await Account.findOne({phone_number: phone_number});
-    if (!account) {
-        throw new Error(errors.USER_NOT_FOUND.error_code);
-    }
+    // user should not find out if the number is registered or not.
+    if (!account) return;
     account.otp = '12345';
     await account.save();
     return;

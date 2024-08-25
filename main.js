@@ -121,27 +121,27 @@ app.post('/api/v1/user/signup-otp',
 );
 
 app.post('/api/v1/user/forget_password',
-    body("phone_number"),
+    body("phone_number").isMobilePhone('ir-IR'),
     validate_api,
     async (req, res) => {
         try {
             const {phone_number} = req.body;
-            const response = await handlers.forget_password(phone_number);
-            res.send(response);
+            await handlers.forget_password(phone_number);
+            res.send({response: "کد تایید برای شماره همراه وارد شده پیامک می شود."});
         } catch (e) {
             handle_api_error(req, res, e);
         }
     });
 
 app.post('/api/v1/user/reset_password',
-    body('passowrd'),
+    body('password').isLength({min: 4}),
     validate_api,
     authenticateToken,
     async (req, res) => {
         try{
             const {password} = req.body;
-            const response = await handlers.reset_password(req.user.account_id, password);
-            res.send(response);
+            await handlers.reset_password(req.user.account_id, password);
+            res.send({response: "تغییر رمز با موفقیت انجام شد."});
         } catch (e) {
             handle_api_error(req, res, e)
         }
