@@ -11,7 +11,12 @@ const PatientSchema = new mongoose.Schema({
     birthdate: Date,
     weight: Number,
     height: Number,
-    blood_type: String
+    blood_type: String,
+    condition_description: String,
+    condition_history: [String],
+    family_history: [String],
+    allergies: [String],
+    medicines: [String],
 });
 
 const Patient = mongoose.model('Patient', PatientSchema);

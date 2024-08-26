@@ -76,7 +76,7 @@ const reset_password = async function (account_id, password) {
     await account.save();
 }
 
-const register_new = async function (first_name, last_name, national_code, city, gender, birthdate, weight, height, blood_type) {
+const register_new = async function (account_id, first_name, last_name, national_code, city, gender, birthdate, weight, height, blood_type) {
     const patient = new Patient({
         first_name,
         last_name,
@@ -89,7 +89,50 @@ const register_new = async function (first_name, last_name, national_code, city,
         blood_type
     });
     await patient.save();
-    return {result: "OK"};
+    const account = await Account.findById(account_id);
+    account.patient_id = patient._id;
+    await account.save();
+    return patient;
+}
+
+const set_condition_description = async function (account_id, condition_description) {
+    const account = await Account.findOne({_id: account_id}).populate('patient_id');
+    account.patient_id.condition_description = condition_description;
+    await account.patient_id.save();
+    return;
+}
+
+const set_conditions_history = async function (account_id, conditions) {
+    const account = await Account.findOne({_id: account_id}).populate('patient_id');
+    account.patient_id.condition_history = conditions;
+    await account.patient_id.save();
+    return;
+}
+
+const set_family_history = async function (account_id, conditions) {
+    const account = await Account.findOne({_id: account_id}).populate('patient_id');
+    account.patient_id.family_history = conditions;
+    await account.patient_id.save();
+    return;
+}
+
+const set_medicines = async function (account_id, medicines) {
+    const account = await Account.findOne({_id: account_id}).populate('patient_id');
+    account.patient_id.medicines = medicines;
+    await account.patient_id.save();
+    return;
+}
+
+const set_allergies = async function (account_id, allergies) {
+    const account = await Account.findOne({_id: account_id}).populate('patient_id');
+    account.patient_id.allergies = allergies;
+    await account.patient_id.save();
+    return;
+}
+
+const get_patient = async function (account_id) {
+    const account = await Account.findOne({_id: account_id}).populate('patient_id');
+    return account.patient_id;
 }
 
 const get_condition_names = async function () {
@@ -341,4 +384,10 @@ module.exports = {
     get_available_times,
     reserve_time,
     get_reservations,
+    set_condition_description,
+    set_conditions_history,
+    set_family_history,
+    set_medicines,
+    set_allergies,
+    get_patient,
 }

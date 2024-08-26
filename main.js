@@ -155,10 +155,14 @@ app.post('/api/v1/patient/register',
     body('city').isString(),
     body('gender').isString(),
     body('birthdate').notEmpty(),
+    body('weight').isInt({min: 1, max: 1000}),
+    body('height').isInt({min: 1, max: 300}),
+    body('bloodType').isIn(['A+', 'A-', 'B+', 'B-', 'AB+', 'AB-', 'O+', 'O-']),
     validate_api,
+    authenticateToken,
     async (req, res) => {
-        const {firstName, lastName, nationalCode, city, gender, birthdate} = req.body;
-        const response = await handlers.register_new(firstName, lastName, nationalCode, city, gender, birthdate);
+        const {firstName, lastName, nationalCode, city, gender, birthdate, weight, height, bloodType} = req.body;
+        const response = await handlers.register_new(req.user.account_id, firstName, lastName, nationalCode, city, gender, birthdate, weight, height, bloodType);
         res.send(response);
     }
 );
@@ -173,6 +177,67 @@ app.get('/api/v1/patient/parameters', async (req, res) => {
         medicine_names
     });
 });
+
+app.post('/api/v1/patient/set_condition_description',
+    body('conditionDescription').isString().isLength({max: 1000}),
+    validate_api,
+    authenticateToken,
+    async (req, res) => {
+        const {conditionDescription} = req.body;
+        await handlers.set_condition_description(req.user.account_id, conditionDescription);
+        res.send({response: "تغییر انجام شد."});
+    }
+);
+
+app.post('/api/v1/patient/set_condition_history',
+    body('conditions').isArray(),
+    validate_api,
+    authenticateToken,
+    async (req, res) => {
+        const {conditions} = req.body;
+        await handlers.set_conditions_history(req.user.account_id, conditions);
+        res.send({response: "تغییر انجام شد."});
+    }
+);
+
+app.post('/api/v1/patient/set_family_history',
+    body('conditions').isArray(),
+    validate_api,
+    authenticateToken,
+    async (req, res) => {
+        const {conditions} = req.body;
+        await handlers.set_family_history(req.user.account_id, conditions);
+        res.send({response: "تغییر انجام شد."});
+    }
+);
+
+app.post('/api/v1/patient/set_medicines',
+    body('medicines'),
+    validate_api,
+    authenticateToken,
+    async (req, res) => {
+        const {medicines} = req.body;
+        await handlers.set_medicines(req.user.account_id, medicines);
+        res.send({response: "تغییر انجام شد."});
+    }
+);
+
+app.post('/api/v1/patient/set_allergies',
+    body('allergies'),
+    validate_api,
+    authenticateToken,
+    async (req, res) => {
+        const {allergies} = req.body;
+        await handlers.set_allergies(req.user.account_id, allergies);
+        res.send({response: "تغییر انجام شد."});
+    }
+);
+
+app.get('/api/v1/patient/my_info', authenticateToken, async (req, res) => {
+    const response = await handlers.get_patient(req.user.account_id);
+    res.send(response);
+});
+
 
 app.post('/api/v1/patient/add_briefing',
     body('patientId').notEmpty(),
