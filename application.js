@@ -246,7 +246,9 @@ const remove_patient_medicine = async function (medicine_id) {
 const get_doctors = async function (city, name, specialization) {
     const filter = {};
     if (city) filter.city = city;
-    if (name) filter.name = name;
+    if (name) {
+        filter.$or = [{first_name: {$regex: name, $options: 'i'}}, {last_name: {$regex: name, $options: 'i'}}];
+    }
     if (specialization) filter.specialization = specialization;
 
     const doctors = await Doctor.find(filter, {national_code: 0});
@@ -271,8 +273,9 @@ const get_available_times = async function (doctor_id, date) {
     return available_times;
 }
 
-const reserve_time = async function (patient_id, doctor_id, date, time_slot) {
+const reserve_time = async function (patient_account_id, doctor_id, date, time_slot) {
     const doctor = await Doctor.findById(doctor_id);
+    const account = await Account.findOne({_id: patient_account_id});
     const active_doctor_reservations = await Reservation.find({doctor_id: doctor_id, date: date, time_slot: time_slot});
     if (active_doctor_reservations.length > 0) {
         throw new Error('TIME_SLOT_NOT_AVAILABLE');
@@ -280,6 +283,7 @@ const reserve_time = async function (patient_id, doctor_id, date, time_slot) {
     const day_of_week = new Date(date).getDay();
     const day_name = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'][day_of_week];
     const schedule = doctor.schedule.find(s => s.day_of_week === day_name);
+    if (!schedule) throw new Error(errors.INVALID_WORKING_DAY.error_code);
     const [hour, minute] = time_slot.split(':').map(Number);
     if (hour < schedule.start_hour || hour >= schedule.end_hour) {
         throw new Error('INVALID_TIME_SLOT');
@@ -287,13 +291,18 @@ const reserve_time = async function (patient_id, doctor_id, date, time_slot) {
     if (minute % doctor.session_time !== 0) {
         throw new Error('INVALID_TIME_SLOT');
     }
-    const reservation = new Reservation({patient_id, doctor_id, date, time_slot});
+    const reservation = new Reservation({patient_id: account.patient_id, doctor_id, date, time_slot, cancelled: false});
     await reservation.save();
     return reservation;
 }
 
-const get_reservations = async function (patient_id) {
-    const reservations = await Reservation.find({ patient_id: patient_id })
+const get_reservations = async function (account_id, only_active) {
+    const account = await Account.findOne({_id: account_id});
+    let filter = {patient_id: account.patient_id};
+    if (only_active) {
+        filter = {...filter, date: { $gte: new Date() }, cancelled: false}
+    }
+    const reservations = await Reservation.find(filter)
         .populate({
             path: 'doctor_id',
             select: 'first_name last_name specialization profile_picture',

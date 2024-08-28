@@ -115,9 +115,11 @@ const Doctor = mongoose.model('Doctor', DoctorSchema);
 
 const ReservationSchema = new mongoose.Schema({
     doctor_id: {type: Schema.Types.ObjectId, ref: 'Doctor'},
-    patient_id: String,
+    patient_id: {type: Schema.Types.ObjectId, ref: 'Patient'},
     date: Date,
-    time_slot: String
+    time_slot: String,
+    cancelled: Boolean,
+    cancellation_reason: String,
 });
 
 const Reservation = mongoose.model('Reservation', ReservationSchema);

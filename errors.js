@@ -24,6 +24,11 @@ const errors = {
         error_string: 'وقت انتخاب شده معتبر نیست',
         status_code: 400
     },
+    INVALID_WORKING_DAY: {
+        error_code: 'INVALID_WORKING_DAY',
+        error_string: 'دکتر در این روز کار نمی‌کند.',
+        status_code: 400
+    },
     INVALID_OTP: {
         error_code: 'INVALID_OTP',
         error_string: 'کد اعتبارسنجی اشتباه است.',
