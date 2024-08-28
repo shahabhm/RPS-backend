@@ -37,15 +37,9 @@ app.post("/subscribe", authenticateToken, async (req, res) => {
     res.send({result: "OK"});
 });
 
-app.get('/', (req, res) => {
+app.get('/api/server/test', (req, res) => {
     res.send('Hello World!')
 })
-
-app.post('/login', async (req, res) => {
-    const {username, password} = req.body;
-    const token = await handlers.login(username, password);
-    res.json(token);
-});
 
 app.get('/uploads/:file', async (req, res) => {
     const {file} = req.params;
@@ -75,14 +69,14 @@ const validate_api = function (req, res, next) {
 }
 
 app.post('/api/v1/user/login',
-    body('phone_number').notEmpty(),
+    body('phoneNumber').notEmpty(),
     body('password').notEmpty(),
     validate_api,
     async (req, res) => {
         try {
             console.log(`POST /api/v1/user/login, req.body: ${JSON.stringify(req.body)}`);
-            const {phone_number, password} = req.body;
-            const response = await handlers.login(phone_number, password);
+            const {phoneNumber, password} = req.body;
+            const response = await handlers.login(phoneNumber, password);
             res.send(response);
         } catch (e) {
             handle_api_error(req, res, e);
@@ -161,9 +155,13 @@ app.post('/api/v1/patient/register',
     validate_api,
     authenticateToken,
     async (req, res) => {
-        const {firstName, lastName, nationalCode, city, gender, birthdate, weight, height, bloodType} = req.body;
-        const response = await handlers.register_new(req.user.account_id, firstName, lastName, nationalCode, city, gender, birthdate, weight, height, bloodType);
-        res.send(response);
+        try {
+            const {firstName, lastName, nationalCode, city, gender, birthdate, weight, height, bloodType} = req.body;
+            const response = await handlers.register_new(req.user.account_id, firstName, lastName, nationalCode, city, gender, birthdate, weight, height, bloodType);
+            res.send(response);
+        } catch (err) {
+            handle_api_error(req, res, err);
+        }
     }
 );
 
@@ -190,45 +188,45 @@ app.post('/api/v1/patient/set_condition_description',
 );
 
 app.post('/api/v1/patient/set_condition_history',
-    body('conditions').isArray(),
+    body('items').isArray(),
     validate_api,
     authenticateToken,
     async (req, res) => {
-        const {conditions} = req.body;
-        await handlers.set_conditions_history(req.user.account_id, conditions);
+        const {items} = req.body;
+        await handlers.set_conditions_history(req.user.account_id, items);
         res.send({response: "تغییر انجام شد."});
     }
 );
 
 app.post('/api/v1/patient/set_family_history',
-    body('conditions').isArray(),
+    body('items').isArray(),
     validate_api,
     authenticateToken,
     async (req, res) => {
-        const {conditions} = req.body;
-        await handlers.set_family_history(req.user.account_id, conditions);
+        const {items} = req.body;
+        await handlers.set_family_history(req.user.account_id, items);
         res.send({response: "تغییر انجام شد."});
     }
 );
 
 app.post('/api/v1/patient/set_medicines',
-    body('medicines'),
+    body('items'),
     validate_api,
     authenticateToken,
     async (req, res) => {
-        const {medicines} = req.body;
-        await handlers.set_medicines(req.user.account_id, medicines);
+        const {items} = req.body;
+        await handlers.set_medicines(req.user.account_id, items);
         res.send({response: "تغییر انجام شد."});
     }
 );
 
 app.post('/api/v1/patient/set_allergies',
-    body('allergies'),
+    body('items'),
     validate_api,
     authenticateToken,
     async (req, res) => {
-        const {allergies} = req.body;
-        await handlers.set_allergies(req.user.account_id, allergies);
+        const {items} = req.body;
+        await handlers.set_allergies(req.user.account_id, items);
         res.send({response: "تغییر انجام شد."});
     }
 );
@@ -338,20 +336,23 @@ app.get('/api/v1/doctor/available_times',
 );
 
 app.post('/api/v1/doctor/reserve_time',
+    authenticateToken,
     async (req, res) => {
         try {
-            const {patient_id, doctor_id, date, time_slot} = req.body;
-            const response = await handlers.reserve_time(patient_id, doctor_id, date, time_slot);
+            const {doctor_id, date, time_slot} = req.body;
+            const response = await handlers.reserve_time(req.user.account_id, doctor_id, date, time_slot);
             res.send(response);
         } catch (e) {
             handle_api_error(req, res, e)
         }
     });
 
-app.get('/api/v1/patient/reservations',
+app.get('/api/v1/reservations/list',
+    query('only_active').isBoolean(),
+    authenticateToken,
     async (req, res) => {
-        const {patient_id} = req.query;
-        const response = await handlers.get_reservations(patient_id);
+        const only_active = req.query.only_active === 'true';
+        const response = await handlers.get_reservations(req.user.account_id, only_active);
         res.send(response);
     }
-    );
+);
