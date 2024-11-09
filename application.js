@@ -1,5 +1,5 @@
 const PushNotifications = require("node-pushnotifications");
-const {Account, Hospital, Patient, Condition, Medicine, PatientMedicine, Briefing, Parameter, Prescription, Doctor, Reservation} = require("./mongo");
+const {Account, Hospital, Patient, Condition, Medicine, Allergy, PatientMedicine, Briefing, Parameter, Prescription, Doctor, Reservation, Chat, Message} = require("./mongo");
 const errors = require('./errors');
 const publicVapidKey = "BDOLcqQ0rm4DNNyx-L8glLEqWkpnIsgzFkpVaJGABBEYmFR9qhdW6Wc9hyQGiyVBa1MUsqwyNAdcBEln0iVObOE";
 const privateVapidKey = process.env.PRIVATE_VAPID_KEY;
@@ -145,6 +145,11 @@ const get_medicines_names = async function () {
     return medicine_names;
 }
 
+const get_allergies_names = async function () {
+    const allergies_names = await Allergy.find({}, {_id: 0});
+    return allergies_names;
+}
+
 const add_briefing = async function (patient_id, doctor_id, description) {
     const record = new Briefing({
         patient_id: patient_id, doctor_id: doctor_id, description: description
@@ -198,13 +203,13 @@ const add_prescription = async function (patient_id, doctor_id, medicines, note)
     return prescription;
 }
 
-const add_patient_medicine = async function (patient_id, medicine, dosage, amount, unit, repeat, hours, with_food, notes) {
-    const record = PatientMedicine.build({
-        patient_id: patient_id, medicine: medicine, dosage: dosage, amount: amount, unit: unit, repeat: repeat, hours: hours, with_food: with_food, notes: notes
+const add_patient_medicine = async function (patient_id, medicineName, dosage, amount, repeatCount, unit, description, with_food) {
+    const record = new PatientMedicine({
+        patient_id, medicineName, dosage, amount, unit, repeat: repeatCount, with_food, notes: description
     });
     try {
         await record.save();
-        return {result: "OK"};
+        return {result: "OK", record: record};
     } catch (err) {
         console.error(err);
     }
@@ -255,12 +260,42 @@ const get_doctors = async function (city, name, specialization) {
     return doctors;
 }
 
+const get_doctor_introduction = async function (doctor_id) {
+    const doctor = await Doctor.findById(doctor_id);
+    return doctor;
+}
+
+const register_doctor = function (firstName, lastName, nationalCode, nezamCode, specialization, province, city, schedule) {
+    const doctor = new Doctor({
+        first_name: firstName,
+        last_name: lastName,
+        national_code: nationalCode,
+        nezam_code: nezamCode,
+        specialization: specialization,
+        province: province,
+        city: city,
+        schedule: schedule
+    });
+    return doctor;
+}
+
+const set_doctor_schedule = async function (doctor_id, schedule) {
+    const doctor = await Doctor.findById(doctor_id);
+    doctor.schedule = schedule.map((s, index) => {
+        return {start_hour: s.startHour,
+             end_hour: s.endHour,
+              day_of_week: ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'][index]
+            }
+    });
+}
+
 const get_available_times = async function (doctor_id, date) {
     const doctor = await Doctor.findById(doctor_id);
     const active_doctor_reservations = await Reservation.find({doctor_id: doctor_id, date: date});
     const day_of_week = new Date(date).getDay();
     const day_name = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'][day_of_week];
     const schedule = doctor.schedule.find(s => s.day_of_week === day_name);
+    if (!schedule) throw new Error(errors.INVALID_WORKING_DAY.error_code);
     const available_times = [];
     for (let hour = schedule.start_hour; hour < schedule.end_hour; hour++) {
         for (let minute = 0; minute < 60; minute += doctor.session_time) {
@@ -293,6 +328,11 @@ const reserve_time = async function (patient_account_id, doctor_id, date, time_s
     }
     const reservation = new Reservation({patient_id: account.patient_id, doctor_id, date, time_slot, cancelled: false});
     await reservation.save();
+    await reservation.populate({
+        path: 'doctor_id',
+        select: 'first_name last_name specialization profile_picture',
+        as: 'doctor'
+    });
     return reservation;
 }
 
@@ -311,6 +351,75 @@ const get_reservations = async function (account_id, only_active) {
     return reservations;
 }
 
+const create_chat = async function (account_id1, account_id2) {
+    const chat = new Chat({user1: account_id1, user2: account_id2});
+    await chat.save();
+    return chat;
+}
+
+// TODO: move to utils
+function truncateString(str, num) {
+    if (str.length > num) {
+        return str.slice(0, num) + '...';
+    } else {
+        return str;
+    }
+}
+
+const get_chat_list = async function (account_id) {
+    const chats = await Chat.find({
+        $or: [
+            { user1: account_id },
+            { user2: account_id }
+        ]
+    }).populate('user1', 'name').populate('user2', 'name');
+
+    const chatListWithDetails = await Promise.all(chats.map(async (chat) => {
+        const otherUser = chat.user1._id.equals(account_id) ? chat.user2 : chat.user1;
+        const unread = await Message.countDocuments({
+            chat: chat._id,
+            sender: { $ne: account_id },
+            seen: false
+        });
+        const lastMessage = await Message.findOne({ chat: chat._id }).sort('-createdAt');
+        return {
+            ...chat.toObject(),
+            unread,
+            user: {
+                profile_picture: 'sina.png',
+                name: otherUser.name,
+            },
+            last_message: {
+                preview: lastMessage ? truncateString(lastMessage.text, 40) : null,
+                time: lastMessage ? lastMessage.createdAt : null
+            }
+        };
+    }));
+
+    return chatListWithDetails;
+}
+
+// TODO: this is really ugly. must clean this thing and move socket to a better place.
+const send_message = async function (sender_id, chat_id, text) {
+    const chat = await Chat.findOne({_id: chat_id});
+    const message = new Message({ sender: sender_id, chat: chat_id, text });
+    await message.save();
+    return {message, chat};
+}
+
+const get_messages = async function (chat_id, account_id) {
+    await Message.updateMany(
+        { chat: chat_id, sender: { $ne: account_id }, seen: false },
+        { $set: { seen: true } }
+    );
+    const messages = await Message.find({ chat: chat_id }).sort('createdAt');
+    return messages;
+}
+
+const seen_message = async function (user_id, message_id) {
+    await Message.updateOne({ _id: message_id }, { seen: true });
+    return 'ok';
+}
 
 const subscribe_push = async function (account_id, subscription) {
     await PushSubscription.upsert({
@@ -381,6 +490,7 @@ module.exports = {
     register_new,
     get_condition_names,
     get_medicines_names,
+    get_allergies_names,
     add_briefing,
     update_briefing,
     delete_briefing,
@@ -391,6 +501,7 @@ module.exports = {
     get_hospitals,
     get_doctors,
     get_available_times,
+    get_doctor_introduction,
     reserve_time,
     get_reservations,
     set_condition_description,
@@ -399,4 +510,12 @@ module.exports = {
     set_medicines,
     set_allergies,
     get_patient,
+    add_patient_medicine,
+    register_doctor,
+    set_doctor_schedule,
+    create_chat,
+    send_message,
+    get_messages,
+    get_chat_list,
+    seen_message,
 }

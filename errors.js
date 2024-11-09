@@ -6,7 +6,7 @@ const errors = {
     },
     USER_NOT_FOUND: {
         error_code: 'USER_NOT_FOUND',
-        error_string: 'کاربری با این نام وجود ندارد',
+        error_string: 'نام کاربری یا رمز عبور اشتباه است',
         status_code: 404
     },
     USER_ALREADY_EXISTS: {

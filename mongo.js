@@ -1,6 +1,6 @@
 const mongoose = require('mongoose');
 const {mongo, Schema} = require("mongoose");
-mongoose.connect('mongodb://127.0.0.1:27017/test');
+mongoose.connect(process.env.MONGO_ADDRESS);
 
 const PatientSchema = new mongoose.Schema({
     first_name: String,
@@ -17,6 +17,7 @@ const PatientSchema = new mongoose.Schema({
     family_history: [String],
     allergies: [String],
     medicines: [String],
+    profile_picture: String,
 });
 
 const Patient = mongoose.model('Patient', PatientSchema);
@@ -34,6 +35,13 @@ const medicineSchema = new mongoose.Schema({
 });
 
 const Medicine = mongoose.model('Medicine', medicineSchema);
+
+const allergySchema = new mongoose.Schema({
+    name: String,
+    persian_name: String
+});
+
+const Allergy = mongoose.model('Allergy', allergySchema);
 
 const BriefingSchema = new mongoose.Schema({
     patient_id: String,
@@ -108,7 +116,9 @@ const DoctorSchema = new mongoose.Schema({
     address: AddressSchema,
     specialization: String,
     profile_picture: String,
-    session_time: Number
+    session_time: Number,
+    description: String,
+    patients: [PatientSchema],
 });
 
 const Doctor = mongoose.model('Doctor', DoctorSchema);
@@ -126,6 +136,7 @@ const Reservation = mongoose.model('Reservation', ReservationSchema);
 
 
 const AccountSchema = new mongoose.Schema({
+    name: String,
     phone_number: String,
     role: String,
     username: String,
@@ -136,11 +147,29 @@ const AccountSchema = new mongoose.Schema({
 })
 const Account = mongoose.model('Account', AccountSchema);
 
+const chatSchema = new mongoose.Schema({
+    user1: { type: mongoose.Schema.Types.ObjectId, ref: 'Account', required: true },
+    user2: { type: mongoose.Schema.Types.ObjectId, ref: 'Account', required: true },
+});
+
+const Chat = mongoose.model('Chat', chatSchema);
+
+const messageSchema = new mongoose.Schema({
+    sender: { type: mongoose.Schema.Types.ObjectId, ref: 'Account', required: true },
+    text: { type: String, required: true },
+    seen: {type: Boolean, required: true, default: false},
+    chat: { type: mongoose.Schema.Types.ObjectId, ref: 'Chat', required: true },
+    createdAt: { type: Date, default: Date.now }
+  });
+  
+  const Message = mongoose.model('Message', messageSchema);
+
 module.exports = {
     Account,
     Patient,
     Condition,
     Medicine,
+    Allergy,
     Briefing,
     Parameter,
     PatientMedicine,
@@ -148,4 +177,6 @@ module.exports = {
     Hospital,
     Doctor,
     Reservation,
+    Chat,
+    Message,
 }
