@@ -164,6 +164,12 @@ const messageSchema = new mongoose.Schema({
   
   const Message = mongoose.model('Message', messageSchema);
 
+const deviceSchema = new mongoose.Schema({
+    patient_id: { type: mongoose.Schema.Types.ObjectId, ref: 'Patient', required: true },
+    code: { type: String, required: true},
+});
+
+const Device = mongoose.model('Device', deviceSchema);
 module.exports = {
     Account,
     Patient,
@@ -179,4 +185,5 @@ module.exports = {
     Reservation,
     Chat,
     Message,
+    Device,
 }

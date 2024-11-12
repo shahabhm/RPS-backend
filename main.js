@@ -84,12 +84,12 @@ httpServer.listen(port);
 
 
 // Connect to the RabbitMQ server using the MQTT plugin
-const client = mqtt.connect('mqtt://localhost:1883');
+const mqttClient = mqtt.connect('mqtt://localhost:1883');
 
 // Subscribe to a topic
-client.on('connect', () => {
+mqttClient.on('connect', () => {
     console.log('Connected to RabbitMQ MQTT');
-    client.subscribe('testing', (err) => {
+    mqttClient.subscribe('testing', (err) => {
         if (!err) {
             console.log('Subscribed to topic');
         } else {
@@ -99,8 +99,16 @@ client.on('connect', () => {
 });
 
 // Handle incoming messages
-client.on('message', (topic, message) => {
+mqttClient.on('message', (topic, message) => {
     console.log(`Received message on topic ${topic}: ${message.toString()}`);
+    try {
+        const convertedMessage = JSON.parse(message.toString());
+        console.log(convertedMessage);
+        const { device_id, parameter, value } = convertedMessage;
+        handlers.capture_parameter(device_id, parameter, value);
+    } catch (e){
+        console.error(e);
+    }
 });
 
 app.post("/subscribe", authenticateToken, async (req, res) => {
@@ -803,6 +811,17 @@ app.get('/api/v1/user/chats/messages', authenticateToken, async (req, res, next)
         next(err);
     }
   });
+
+app.post('/api/v1/patient/register_device', authenticateToken, async (req, res, next) => {
+    try {
+        const {account_id} = req.user;
+        const {device_code} = req.body;
+        const response = await handlers.register_device(account_id, device_code);
+        res.send(response);
+    } catch (e) {
+        next(e);
+    }
+});
 
 // THIS MUST BE THE LAST MIDDLEWARE OR IT WON'T WORK. GOD I LOVE NODEJS AND EXPRESS
 app.use(handle_api_error);

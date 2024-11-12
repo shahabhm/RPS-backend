@@ -1,5 +1,5 @@
 const PushNotifications = require("node-pushnotifications");
-const {Account, Hospital, Patient, Condition, Medicine, Allergy, PatientMedicine, Briefing, Parameter, Prescription, Doctor, Reservation, Chat, Message} = require("./mongo");
+const {Account, Hospital, Patient, Condition, Medicine, Allergy, PatientMedicine, Briefing, Parameter, Prescription, Doctor, Reservation, Chat, Message, Device} = require("./mongo");
 const errors = require('./errors');
 const publicVapidKey = "BDOLcqQ0rm4DNNyx-L8glLEqWkpnIsgzFkpVaJGABBEYmFR9qhdW6Wc9hyQGiyVBa1MUsqwyNAdcBEln0iVObOE";
 const privateVapidKey = process.env.PRIVATE_VAPID_KEY;
@@ -178,9 +178,10 @@ const get_parameter_names = async function() {
     return PATIENT_PARAMETERS;
 }
 
-const capture_parameter = async function (patient_id, parameter, value) {
+const capture_parameter = async function (device_code, parameter, value) {
+    const device = await Device.findOne({code: device_code});
     const record = new Parameter({
-        patient_id: patient_id, parameter: parameter, value: value, created_at: new Date()
+        patient_id: device.patient_id, parameter: parameter, value: value, created_at: new Date()
     });
     try {
         await record.save();
@@ -188,6 +189,11 @@ const capture_parameter = async function (patient_id, parameter, value) {
     } catch (err) {
         console.error(err)
     }
+}
+
+const register_device = async function (account_id, device_code) {
+    await Device.findOneAndUpdate({code: device_code}, {patient_id: account_id}, {upsert: true});
+    return {result: "OK"};
 }
 
 const get_parameters = async function (patient_id) {
@@ -518,4 +524,5 @@ module.exports = {
     get_messages,
     get_chat_list,
     seen_message,
+    register_device,
 }
