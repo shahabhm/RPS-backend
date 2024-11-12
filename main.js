@@ -84,7 +84,7 @@ httpServer.listen(port);
 
 
 // Connect to the RabbitMQ server using the MQTT plugin
-const mqttClient = mqtt.connect('mqtt://localhost:1883');
+const mqttClient = mqtt.connect(process.env.RABBIT_URI, {username: process.env.RABBIT_USER, password: process.env.RABBIT_PASSWORD});
 
 // Subscribe to a topic
 mqttClient.on('connect', () => {
@@ -120,10 +120,6 @@ app.post("/subscribe", authenticateToken, async (req, res) => {
 
 app.get('/api/server/test', (req, res) => {
     res.send('Hello World!')
-    io.to(usersSocketConnections.get('66c0da53b520fc8c4eebbfd4')).emit('receiveMessage', {
-        // targetUserId: '66c0da53b520fc8c4eebbfd4',
-        message: 'Hello, this is a direct message!'
-    });
 })
 
 app.get('/api/v1/uploads/:file', async (req, res) => {
