@@ -6,7 +6,7 @@ const { query, body, validationResult } = require('express-validator');
 const bodyParser = require('body-parser')
 const cors = require('cors');
 const multer = require("multer");
-const upload = multer({ dest: "uploads/" });
+// const upload = multer({ dest: "uploads/" });
 const app = express()
 const port = 3000
 const { application } = require("express");
@@ -108,6 +108,25 @@ mqttClient.on('message', (topic, message) => {
         handlers.capture_parameter(device_id, parameter, value);
     } catch (e){
         console.error(e);
+    }
+});
+
+const storage = multer.diskStorage({
+    destination: (req, file, cb) => {
+        cb(null, 'uploads/');
+    },
+    filename: (req, file, cb) => {
+        cb(null, `${Date.now()}-${file.originalname}`);
+    },
+});
+
+const upload = multer({ storage: storage });
+
+app.post('/api/v1/upload', upload.single('image'), (req, res) => {
+    try {
+        res.status(200).json({ message: 'File uploaded successfully', file: req.file });
+    } catch (error) {
+        res.status(500).json({ message: 'Error uploading file', error });
     }
 });
 
@@ -229,7 +248,7 @@ app.post('/api/v1/patient/register',
     body('nationalCode').isString(),
     body('city').isString(),
     body('gender').isString(),
-    body('birthdate').notEmpty(),
+    // body('birthdate').notEmpty(),
     body('weight').isInt({ min: 1, max: 1000 }),
     body('height').isInt({ min: 1, max: 300 }),
     body('bloodType').isIn(['A+', 'A-', 'B+', 'B-', 'AB+', 'AB-', 'O+', 'O-']),
@@ -256,10 +275,11 @@ app.post('/api/v1/doctor/register',
     body('city').isString(),
     body('schedule'),
     validate_api,
+    authenticateToken,
     async (req, res, next) => {
         try {
             const { firstName, lastName, nationalCode, nezamCode, specialization, province, city, schedule } = req.body;
-            const response = await handlers.register_doctor(firstName, lastName, nationalCode, nezamCode, specialization, province, city);
+            const response = await handlers.register_doctor(req.user.account_id, firstName, lastName, nationalCode, nezamCode, specialization, province, city);
             res.send(response);
         } catch (err) {
             next(err);
@@ -268,9 +288,21 @@ app.post('/api/v1/doctor/register',
 );
 
 app.post('/api/v1/doctor/schedule',
-    async (req, res) => {
-        console.log(req.body);
-        // const res = handlers.set_doctor_schedule()
+    async (req, res, next) => {
+        try {
+            console.log(req.body);
+            const {workingDays} = req.body;
+            for (workingDay in workingDays) {
+            //     validate the input
+                if (workingDays.startHour === "" || workingDays.endHour === "" || workingDays.startHour > workingDays.endHour) {
+                    throw new Error('INVALID_INPUT');
+                }
+            }
+            const response = handlers.set_doctor_schedule(workingDays);
+            res.send(response)
+        } catch (e) {
+            next(e);
+        }
     }
 );
 
@@ -449,6 +481,7 @@ app.post('/api/v1/patient/capture_parameter',
     }
 );
 
+// TODO: this must be refactored for the new parameters page
 app.post('/api/v1/patient/get_parameters',
     body('patient_id').notEmpty(),
     validate_api,
@@ -462,6 +495,37 @@ app.post('/api/v1/patient/get_parameters',
         }
     }
 );
+
+//         {
+//             parameter_name: 'Heart Rate',
+//             value: 80,
+//             unit: 'BPM'
+//         }
+
+app.get('/api/v1/patient/last_parameters',
+    async (req, res, next) => {
+        try {
+            res.send([
+                {
+                    parameter_name: 'ضربان قلب',
+                    value: 80,
+                    unit: 'BPM'
+                },        {
+                    parameter_name: 'قند خون',
+                    value: 80,
+                    unit: 'mg/dl'
+                },
+                {
+                    parameter_name: 'اکسیژن خون',
+                    value: 80,
+                    unit: '%'
+                }
+            ])
+        } catch (e) {
+            next(e);
+        }
+    }
+    );
 
 app.post('/api/v1/patient/medicine/add',
     body('medicineName').isString(),
@@ -609,7 +673,7 @@ app.get('/api/v1/doctor/introduction',
     });
 
 app.get('/api/v1/patient/notifications',
-    authenticateToken,
+    // authenticateToken,
     async (req, res) => {
         res.send({
             urgentReminders: [
@@ -618,6 +682,7 @@ app.get('/api/v1/patient/notifications',
                     body: 'ضربان قلب شما بیش از حد زیاد است',
                     type: 'criticalAlert',
                     actionButton: 'تماس با پزشک',
+                    actionButtonLink: '/user/patient/emergency',
                 },
             ],
             currentReminders: [
@@ -779,11 +844,21 @@ app.get('/api/v1/user/chats',
     }
 );
 
+// create a new chat
+app.post('/api/v1/user/chats', authenticateToken, async (req, res, next) => {
+    try {
+        const response = await handlers.create_chat(req.user.account_id, req.body.doctor_id);
+        res.send(response);
+    } catch (e) {
+        next(e);
+    }
+});
+
 app.post ('/api/v1/user/chats/send', authenticateToken, async function (req, res, next) {
     try {
         const sender_id = req.user.account_id;
-        const { chat_id, text } = req.body;
-        const {message, chat} = await handlers.send_message(sender_id, chat_id, text);
+        const { chat_id, text, image_name } = req.body;
+        const {message, chat} = await handlers.send_message(sender_id, chat_id, text, image_name);
         console.log(chat);
         io.to(usersSocketConnections.get(chat.user1.toString())).emit('receiveMessage', message);
         io.to(usersSocketConnections.get(chat.user2.toString())).emit('receiveMessage', message);
@@ -817,6 +892,38 @@ app.post('/api/v1/patient/register_device', authenticateToken, async (req, res, 
     } catch (e) {
         next(e);
     }
+});
+
+//         {
+//             title: 'تخفیف ویژه برای تهیه‌ی دستگاه',
+//             body: 'شما می‌توانید تا ۳ روز آینده دستگاه پایش سلامت را با تخفیف ويژه خریداری کنید.',
+//             type: 'call',
+//             actionButton: 'تماس با واحد فروش',
+//             actionButtonLink: 'tel:09156289830'
+//         }
+// write a /patient/promotions API
+
+app.get('/api/v1/patient/promotions', async (req, res, next) => {
+   try {
+       res.send([
+               {
+                   title: 'تخفیف ویژه برای تهیه‌ی دستگاه',
+                   body: 'شما می‌توانید تا ۳ روز آینده دستگاه پایش سلامت را با تخفیف ويژه خریداری کنید.',
+                   type: 'call',
+                   actionButton: 'تماس با واحد فروش',
+                   actionButtonLink: 'tel:09156289830'
+               }, {
+                   title: 'بدون دردسر نوبت ویزیت تهیه کنید!',
+                   body: 'شما می‌توانید به سرعت و به صورت آنلاین، از پزشکان ما نوبت بگیرید.',
+                   type: 'tick',
+                   actionButton: 'جستجو میان پزشکان',
+                   actionButtonLink: '/user/patient/doctors'
+               }
+           ]
+       );
+   } catch (e) {
+       next(e);
+   }
 });
 
 // THIS MUST BE THE LAST MIDDLEWARE OR IT WON'T WORK. GOD I LOVE NODEJS AND EXPRESS

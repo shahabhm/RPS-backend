@@ -148,17 +148,18 @@ const AccountSchema = new mongoose.Schema({
 const Account = mongoose.model('Account', AccountSchema);
 
 const chatSchema = new mongoose.Schema({
-    user1: { type: mongoose.Schema.Types.ObjectId, ref: 'Account', required: true },
-    user2: { type: mongoose.Schema.Types.ObjectId, ref: 'Account', required: true },
+    user1: { type: mongoose.Schema.Types.ObjectId, ref: 'Account', required: true},
+    user2: { type: mongoose.Schema.Types.ObjectId, ref: 'Account', required: true},
 });
 
 const Chat = mongoose.model('Chat', chatSchema);
 
 const messageSchema = new mongoose.Schema({
     sender: { type: mongoose.Schema.Types.ObjectId, ref: 'Account', required: true },
-    text: { type: String, required: true },
+    text: { type: String },
     seen: {type: Boolean, required: true, default: false},
     chat: { type: mongoose.Schema.Types.ObjectId, ref: 'Chat', required: true },
+    image_name: { type: String }, // if the message is a photo, this will have the name of the image file
     createdAt: { type: Date, default: Date.now }
   });
   

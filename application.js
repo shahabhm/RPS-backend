@@ -91,6 +91,7 @@ const register_new = async function (account_id, first_name, last_name, national
     await patient.save();
     const account = await Account.findById(account_id);
     account.patient_id = patient._id;
+    account.name = first_name + ' ' + last_name;
     await account.save();
     return patient;
 }
@@ -271,7 +272,7 @@ const get_doctor_introduction = async function (doctor_id) {
     return doctor;
 }
 
-const register_doctor = function (firstName, lastName, nationalCode, nezamCode, specialization, province, city, schedule) {
+const register_doctor = async function (account_id, firstName, lastName, nationalCode, nezamCode, specialization, province, city, schedule) {
     const doctor = new Doctor({
         first_name: firstName,
         last_name: lastName,
@@ -282,6 +283,11 @@ const register_doctor = function (firstName, lastName, nationalCode, nezamCode, 
         city: city,
         schedule: schedule
     });
+    await doctor.save();
+    const account = await Account.findById(account_id);
+    account.doctor_id = doctor._id;
+    account.name = firstName + ' ' + lastName;
+    await account.save();
     return doctor;
 }
 
@@ -358,7 +364,27 @@ const get_reservations = async function (account_id, only_active) {
 }
 
 const create_chat = async function (account_id1, account_id2) {
-    const chat = new Chat({user1: account_id1, user2: account_id2});
+    // account 2 is doctor
+    if (!account_id2) throw new Error(errors.USER_NOT_FOUND.error_code);
+    account2 = await Account.findOne({doctor_id: account_id2});
+    if (!account2) {
+        throw new Error(errors.USER_NOT_FOUND.error_code);
+    }
+    // Check if a chat already exists between the two users
+    let chat = await Chat.findOne({
+        $or: [
+            { user1: account_id1, user2: account2._id },
+            { user1: account2._id, user2: account_id1 }
+        ]
+    });
+
+    // If a chat exists, return it
+    if (chat) {
+        return chat;
+    }
+
+    // If no chat exists, create a new chat
+    chat = new Chat({ user1: account_id1, user2: account2._id });
     await chat.save();
     return chat;
 }
@@ -406,9 +432,12 @@ const get_chat_list = async function (account_id) {
 }
 
 // TODO: this is really ugly. must clean this thing and move socket to a better place.
-const send_message = async function (sender_id, chat_id, text) {
+const send_message = async function (sender_id, chat_id, text, image_name) {
+    if (!image_name && ! text) {
+        throw new Error('پیام خالی است.');
+    }
     const chat = await Chat.findOne({_id: chat_id});
-    const message = new Message({ sender: sender_id, chat: chat_id, text });
+    const message = new Message({ sender: sender_id, chat: chat_id, text, image_name:image_name });
     await message.save();
     return {message, chat};
 }
