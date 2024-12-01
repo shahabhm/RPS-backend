@@ -10,13 +10,14 @@ const multer = require("multer");
 const app = express()
 const port = 3000
 const { application } = require("express");
-const handlers = require('./application')
-const { generateAccessToken, authenticateToken } = require('./jwt')
+const handlers = require('./application');
+const {authenticateToken } = require('./jwt');
 const errors = require('./errors');
 const winston = require('winston');
 const { validate } = require("node-cron");
 const constants = require('./constants');
 const jwt = require("jsonwebtoken");
+const {get_account_by_id, capture_parameter} = require("./application");
 
 const logger = winston.createLogger({
     level: 'info', format: winston.format.json(), transports: [new winston.transports.Console()],
@@ -99,14 +100,18 @@ mqttClient.on('connect', () => {
 });
 
 // Handle incoming messages
-mqttClient.on('message', (topic, message) => {
+mqttClient.on('message', async (topic, message) => {
     console.log(`Received message on topic ${topic}: ${message.toString()}`);
     try {
         const convertedMessage = JSON.parse(message.toString());
         console.log(convertedMessage);
-        const { device_id, parameter, value } = convertedMessage;
-        handlers.capture_parameter(device_id, parameter, value);
-    } catch (e){
+        const {device_id, parameter, value} = convertedMessage;
+        const {socket_payloads} = await handlers.capture_parameter(device_id, parameter, value);
+        socket_payloads.forEach(socket_payload => {
+            console.log(usersSocketConnections.get(socket_payload.account_id.toString()), socket_payload)
+            io.to(usersSocketConnections.get(socket_payload.account_id.toString())).emit('receiveParameter', socket_payload);
+        })
+    } catch (e) {
         console.error(e);
     }
 });
@@ -186,12 +191,13 @@ app.post('/api/v1/user/login',
 app.post('/api/v1/user/signup',
     body('phoneNumber').isMobilePhone('ir-IR'),
     body('password').isLength({ min: 3, max: 255 }),
+    body('role').isIn(['doctor', 'patient']),
     validate_api,
     async (req, res, next) => {
         try {
             console.log(`POST /api/v1/user/signup, req.body: ${JSON.stringify(req.body)}`);
-            const { phoneNumber, password } = req.body;
-            await handlers.signup_mobile(phoneNumber, password);
+            const { phoneNumber, password, role } = req.body;
+            await handlers.signup_mobile(phoneNumber, password, role);
             res.send({ response: 'کد یکبار مصرف به شماره تلفن شما پیامک شد.' });
         } catch (e) {
             next(e);
@@ -288,9 +294,11 @@ app.post('/api/v1/doctor/register',
 );
 
 app.post('/api/v1/doctor/schedule',
+    authenticateToken,
     async (req, res, next) => {
         try {
             console.log(req.body);
+            const {account_id} = req.user.account_id;
             const {workingDays} = req.body;
             for (workingDay in workingDays) {
             //     validate the input
@@ -298,7 +306,7 @@ app.post('/api/v1/doctor/schedule',
                     throw new Error('INVALID_INPUT');
                 }
             }
-            const response = handlers.set_doctor_schedule(workingDays);
+            const response = handlers.set_doctor_schedule(account_id, workingDays);
             res.send(response)
         } catch (e) {
             next(e);
@@ -487,7 +495,6 @@ app.post('/api/v1/patient/get_parameters',
     validate_api,
     async (req, res, next) => {
         try {
-            const { patient_id } = req.body;
             const response = await handlers.get_parameters(patient_id);
             res.send(response);
         } catch (e) {
@@ -502,25 +509,23 @@ app.post('/api/v1/patient/get_parameters',
 //             unit: 'BPM'
 //         }
 
+app.get('api/v1/doctor/get_patient_parameters', authenticateToken, async (req, res, next) => {
+   try {
+       const {patient_id} = req.query;
+         const response = await handlers.get_latest_parameters(patient_id);
+   } catch (e) {
+       next(e);
+   }
+});
+
 app.get('/api/v1/patient/last_parameters',
+    authenticateToken,
+    handlers.get_account_by_id,
     async (req, res, next) => {
         try {
-            res.send([
-                {
-                    parameter_name: 'ضربان قلب',
-                    value: 80,
-                    unit: 'BPM'
-                },        {
-                    parameter_name: 'قند خون',
-                    value: 80,
-                    unit: 'mg/dl'
-                },
-                {
-                    parameter_name: 'اکسیژن خون',
-                    value: 80,
-                    unit: '%'
-                }
-            ])
+            const patient_id = req.account.role === "patient"? req.account.patient_id.toString() : req.query.patient_id;
+            const response = await handlers.get_latest_parameters(patient_id);
+            res.send(response);
         } catch (e) {
             next(e);
         }
@@ -577,6 +582,17 @@ app.get('/api/v1/hospital/list',
         }
     });
 
+app.get('/api/v1/hospital/info',
+    async (req, res, next) => {
+        try {
+            const { hospitalId } = req.query;
+            const response = await handlers.get_hospital_info(hospitalId);
+            res.send(response);
+        } catch (e) {
+            next (e);
+        }
+    });
+
 app.get('/api/v1/doctor/list',
     async (req, res, next) => {
         try {
@@ -620,41 +636,14 @@ app.post('/api/v1/doctor/reserve_time',
 app.get('/api/v1/reservations/list',
     query('only_active').isBoolean(),
     authenticateToken,
-    async (req, res) => {
-        const only_active = req.query.only_active === 'true';
-        const response = await handlers.get_reservations(req.user.account_id, only_active);
-        res.send([
-            {
-                "_id": "66cd894be2cbd35c86b5879b",
-                "doctor_id": {
-                    "_id": "66b7a942e10b969d40b1d185",
-                    "first_name": "Hossein",
-                    "last_name": "Karimi",
-                    "specialization": "Neurologists",
-                    "profile_picture": "http://example.com/hossein_karimi.jpg"
-                },
-                "patient_id": "66cd7d7a7f5555fdcc47d159",
-                "date": "2025-01-05T20:30:00.000Z",
-                "time_slot": "10:20",
-                "cancelled": false,
-                "__v": 0
-            },
-            {
-                "_id": "66cd896809f341006ac643f2",
-                "doctor_id": {
-                    "_id": "66b7a942e10b969d40b1d185",
-                    "first_name": "Hossein",
-                    "last_name": "Karimi",
-                    "specialization": "Neurologists",
-                    "profile_picture": "http://example.com/hossein_karimi.jpg"
-                },
-                "patient_id": "66cd7d7a7f5555fdcc47d159",
-                "date": "2025-01-05T20:30:00.000Z",
-                "time_slot": "10:40",
-                "cancelled": false,
-                "__v": 0
-            }
-        ]);
+    async (req, res, next) => {
+        try {
+            const only_active = req.query.only_active === 'true';
+            const response = await handlers.get_reservations(req.user.account_id, only_active);
+            res.send(response);
+        } catch (e) {
+            next(e);
+        }
     }
 );
 
@@ -727,90 +716,27 @@ let shitCounter = 0;
 
 // v1/doctor/meetings
 app.get('/api/v1/doctor/meetings',
-    //  authenticateToken,
+     authenticateToken,
+    get_account_by_id,
     async (req, res) => {
-        shitCounter += 1;
         const { page, limit } = req.query;
-        // const {doctor_id} = req.user.account_id;
         console.log(page, limit);
-        res.send({
-            page: page,
-            limit: limit,
-            totalPages: 10,
-            totalItems: 100,
-            items: [
-            {
-                name: 'شهاب مقدم' + shitCounter,
-                start_time: '12:40',
-                finish_time: '12:50',
-                date: '2024/09/11'
-            },
-            {
-                name: 'شهاب مقدم',
-                start_time: '12:40',
-                finish_time: '12:50',
-                date: '2024/09/11'
-            },
-            {
-                name: 'شهاب مقدم',
-                start_time: '12:40',
-                finish_time: '12:50',
-                date: '2024/09/11'
-            },
-            {
-                name: 'شهاب مقدم',
-                start_time: '12:40',
-                finish_time: '12:50',
-                date: '2024/09/11'
-            },
-            {
-                name: 'شهاب مقدم',
-                start_time: '12:40',
-                finish_time: '12:50',
-                date: '2024/09/11'
-            },
-            {
-                name: 'شهاب مقدم',
-                start_time: '12:40',
-                finish_time: '12:50',
-                date: '2024/09/11'
-            },
-            {
-                name: 'شهاب مقدم',
-                start_time: '12:40',
-                finish_time: '12:50',
-                date: '2024/09/11'
-            },
-            {
-                name: 'شهاب مقدم',
-                start_time: '12:40',
-                finish_time: '12:50',
-                date: '2024/09/11'
-            },
-            {
-                name: 'شهاب مقدم',
-                start_time: '12:40',
-                finish_time: '12:50',
-                date: '2024/09/11'
-            },
-            {
-                name: 'شهاب مقدم',
-                start_time: '12:40',
-                finish_time: '12:50',
-                date: '2024/09/11'
-            },
-        ]})
+        const response = await handlers.get_doctor_meetings(req.account.doctor_id.toString());
+        res.send({items: response});
     });
 
 // v1/doctor/info
 app.get('/api/v1/doctor/info',
-    //  authenticateToken,
-    async (req, res) => {
-        // const {doctor_id} = req.user.account_id;
-        res.send({
-            name: 'سینا احمدی',
-            profile_picture: 'sina.png'
-        })
+     authenticateToken,
+    get_account_by_id,
+    async (req, res, next) => {
+        try{
+            const {doctor_id} = req.account;
+            response = await handlers.get_doctor(doctor_id.toString())
+            res.send(response)
+        } catch (e) {
+            next(e);
+        }
     });
 
 app.get('/api/v1/general/provinces',
@@ -836,7 +762,8 @@ app.get('/api/v1/user/chats',
     async (req, res, next) => {
         try {
             const {account_id} = req.user;
-            const response = await handlers.get_chat_list(account_id);
+            const {unread} = req.query;
+            const response = await handlers.get_chat_list(account_id, unread==="true");
             res.send(response);
         } catch (err) {
             next(err);
@@ -860,6 +787,7 @@ app.post ('/api/v1/user/chats/send', authenticateToken, async function (req, res
         const { chat_id, text, image_name } = req.body;
         const {message, chat} = await handlers.send_message(sender_id, chat_id, text, image_name);
         console.log(chat);
+        // TODO: These should be put somewhere else.
         io.to(usersSocketConnections.get(chat.user1.toString())).emit('receiveMessage', message);
         io.to(usersSocketConnections.get(chat.user2.toString())).emit('receiveMessage', message);
         res.send(message);
@@ -903,7 +831,8 @@ app.post('/api/v1/patient/register_device', authenticateToken, async (req, res, 
 //         }
 // write a /patient/promotions API
 
-app.get('/api/v1/patient/promotions', async (req, res, next) => {
+app.get('/api/v1/patient/promotions', authenticateToken, async (req, res, next) => {
+    const {account_id} = req.user;
    try {
        res.send([
                {
@@ -918,6 +847,12 @@ app.get('/api/v1/patient/promotions', async (req, res, next) => {
                    type: 'tick',
                    actionButton: 'جستجو میان پزشکان',
                    actionButtonLink: '/user/patient/doctors'
+               }, {
+               title: 'وارد ربات تلگرامی شوید!',
+               body: 'با استارت کردن ربات تلگرام، می‌توانید یادآورها و هشدارهای مربوط به خودتان را در تلگرام دریافت کنید.',
+               type: 'telegram',
+               actionButton: 'وصل شدن به ربات تلگرام',
+               actionButtonLink: `https://t.me/test_health_alerts_bot?start=${account_id}`
                }
            ]
        );
@@ -925,6 +860,19 @@ app.get('/api/v1/patient/promotions', async (req, res, next) => {
        next(e);
    }
 });
+
+app.post('/api/v1/patient/add_doctor',
+    authenticateToken,
+    async (req, res, next) => {
+        try {
+            const {account_id} = req.user;
+            const {doctor_id} = req.body;
+            const response = await handlers.add_to_watchlist(account_id, doctor_id);
+            res.send(response);
+        } catch (e) {
+            next(e);
+        }
+    });
 
 // THIS MUST BE THE LAST MIDDLEWARE OR IT WON'T WORK. GOD I LOVE NODEJS AND EXPRESS
 app.use(handle_api_error);

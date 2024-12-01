@@ -1,26 +1,3 @@
-const CITIES = [
-    {
-        name: 'Tehran',
-        persian_name: 'تهران'
-    },
-    {
-        name: 'Shiraz',
-        persian_name: 'شیراز'
-    },
-    {
-        name: 'Mashhad',
-        persian_name: 'مشهد'
-    },
-    {
-        name: 'Isfahan',
-        persian_name: 'اصفهان'
-    },
-    {
-        name: 'Tabriz',
-        persian_name: 'تبریز'
-    }
-];
-
 const BLOOD_TYPES = ['A+', 'A-', 'B+', 'B-', 'AB+', 'AB-', 'O+', 'O-'];
 
 const PATIENT_PARAMETERS = [

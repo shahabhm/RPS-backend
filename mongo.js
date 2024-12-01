@@ -58,6 +58,15 @@ const ParameterSchema = new mongoose.Schema({
     created_at: Date
 });
 
+const ParameterLimitSchema = new Schema({
+    patient_id: { type: Schema.Types.ObjectId, ref: 'Patient', required: true },
+    parameter_name: { type: String, required: true },
+    upper_limit: { type: Number, required: true },
+    lower_limit: { type: Number, required: true }
+});
+
+const ParameterLimit = mongoose.model('ParameterLimit', ParameterLimitSchema);
+
 // patient_id, medicine, dosage, amount, unit, repeat, hours, with_food, notes
 
 const PatientMedicineSchema = new mongoose.Schema({
@@ -142,6 +151,7 @@ const AccountSchema = new mongoose.Schema({
     username: String,
     password: String,
     otp: String,
+    telegram_id: String,
     doctor_id: {type: Schema.Types.ObjectId, ref: 'Doctor'},
     patient_id: {type: Schema.Types.ObjectId, ref: 'Patient'}
 })
@@ -162,13 +172,21 @@ const messageSchema = new mongoose.Schema({
     image_name: { type: String }, // if the message is a photo, this will have the name of the image file
     createdAt: { type: Date, default: Date.now }
   });
-  
-  const Message = mongoose.model('Message', messageSchema);
+
+const Message = mongoose.model('Message', messageSchema);
 
 const deviceSchema = new mongoose.Schema({
     patient_id: { type: mongoose.Schema.Types.ObjectId, ref: 'Patient', required: true },
     code: { type: String, required: true},
 });
+
+const patientDoctorSchema = new mongoose.Schema({
+    patient_id: { type: mongoose.Schema.Types.ObjectId, ref: 'Patient', required: true },
+    doctor_id: { type: mongoose.Schema.Types.ObjectId, ref: 'Doctor', required: true },
+});
+
+const PatientDoctor = mongoose.model('PatientDoctor', patientDoctorSchema);
+
 
 const Device = mongoose.model('Device', deviceSchema);
 module.exports = {
@@ -187,4 +205,6 @@ module.exports = {
     Chat,
     Message,
     Device,
+    ParameterLimit,
+    PatientDoctor,
 }

@@ -1,12 +1,14 @@
 const PushNotifications = require("node-pushnotifications");
-const {Account, Hospital, Patient, Condition, Medicine, Allergy, PatientMedicine, Briefing, Parameter, Prescription, Doctor, Reservation, Chat, Message, Device} = require("./mongo");
+const {Account, Hospital, Patient, Condition, Medicine, Allergy, PatientMedicine, Briefing, Parameter, Prescription, Doctor, Reservation, Chat, Message, Device,
+    ParameterLimit,
+    PatientDoctor
+} = require("./mongo");
 const errors = require('./errors');
-const publicVapidKey = "BDOLcqQ0rm4DNNyx-L8glLEqWkpnIsgzFkpVaJGABBEYmFR9qhdW6Wc9hyQGiyVBa1MUsqwyNAdcBEln0iVObOE";
-const privateVapidKey = process.env.PRIVATE_VAPID_KEY;
 
 const cron = require('node-cron');
 const {generateAccessToken} = require("./jwt");
 const {PATIENT_PARAMETERS} = require("./constants");
+const telegram = require('./telegram');
 
 cron.schedule('*/10 * * * * *', () => {
     // console.log("cronjob running");
@@ -20,16 +22,24 @@ const generate_token = function (account) {
         role: account.role,
     };}
 
+async function get_account_by_id(req, res, next) {
+    const {account_id} = req.user;
+    if (account_id == null) return res.sendStatus(401)
+    req.account = await Account.findOne({_id: req.user.account_id});
+    next()
+}
+
 
 const login = async function (phone_number, password) {
     const account = await Account.findOne({phone_number: phone_number, password: password});
     if (!account) {
         throw new Error('USER_NOT_FOUND');
     }
+    telegram.send_message(account.telegram_id, 'شما وارد حساب کاربری خود شدید.');
     return generate_token(account);
 }
 
-const signup_mobile = async function (phone_number, password) {
+const signup_mobile = async function (phone_number, password, role) {
     const existing_account = await Account.findOne({phone_number: phone_number});
     if (existing_account) {
         throw new Error('USER_ALREADY_EXISTS');
@@ -37,7 +47,7 @@ const signup_mobile = async function (phone_number, password) {
     const account = new Account({
         phone_number: phone_number,
         password: password,
-        role: 'patient',
+        role: role,
         otp: '12345'
     });
     await account.save();
@@ -181,15 +191,46 @@ const get_parameter_names = async function() {
 
 const capture_parameter = async function (device_code, parameter, value) {
     const device = await Device.findOne({code: device_code});
+    const current_time = new Date();
     const record = new Parameter({
-        patient_id: device.patient_id, parameter: parameter, value: value, created_at: new Date()
+        patient_id: device.patient_id, parameter: parameter, value: value, created_at: current_time
     });
+    // read the parameter limit from the database, if the parameter is not in the acceptable range, send an alert through telegram
+    const account = await Account.findOne({patient_id: device.patient_id});
+    const patient = await Patient.findOne({_id: device.patient_id});
+    const parameter_limit = await ParameterLimit.findOne({patient_id: device.patient_id, parameter_name: parameter});
+    if (parameter_limit && (value < parameter_limit.lower_limit || value > parameter_limit.upper_limit)) {
+        send_alert(account, parameter, value);
+    }
+    const patient_doctors = await PatientDoctor.find({patient_id: device.patient_id});
+    const doctor_accounts = await Promise.all(patient_doctors.map(async pd => Account.findOne({doctor_id: pd.doctor_id})));
+    const patient_payload = {account_id: account._id, parameter: parameter, value: value, created_at: current_time};
+    const socket_payloads = doctor_accounts.map((doctor) => {
+        return {account_id: doctor._id, parameter: parameter, value: value, created_at: current_time}
+    });
+    socket_payloads.push(patient_payload);
     try {
         await record.save();
-        return {result: "OK", record};
+        return {result: "OK", record, socket_payloads};
     } catch (err) {
         console.error(err)
     }
+}
+
+const send_alert = async function (patient_account, parameter, value) {
+    const patient_doctors = await PatientDoctor.find({patient_id: patient_account._id});
+    const doctor_accounts = await Promise.all(patient_doctors.map(async pd => Account.findOne({doctor_id: pd.doctor_id})))
+    for (let index = 0; index < doctor_accounts.length; index ++){
+        let doctor = doctor_accounts[index];
+        telegram.send_message(doctor.telegram_id, `بیمار شما، ${patient_account.name} در شرایط غیرعادی قرار دارد. \n ${parameter}: ${value}\nمشاهده‌ی پروفایل بیمار: http://localhost/${patient_account._id} `);
+    }
+    telegram.send_message(patient_account.telegram_id, `هشدار: ${parameter} شما ${value} است که خارج از بازه‌ی نرمال است.`);
+}
+
+const add_to_watchlist = async function (patient_id, doctor_id){
+    const record = new PatientDoctor({patient_id, doctor_id});
+    await record.save()
+    return record;
 }
 
 const register_device = async function (account_id, device_code) {
@@ -223,7 +264,7 @@ const add_patient_medicine = async function (patient_id, medicineName, dosage, a
 }
 
 const get_hospitals = async function (city, latitude, longitude) {
-    const hospitals = await Hospital.find({city: city});
+    const hospitals = await Hospital.find();
     return hospitals;
 }
 
@@ -248,11 +289,6 @@ const edit_patient_medicine = async function (medicine_id, medicine, dosage, amo
     record.notes = notes;
     await record.save();
     return {result: "OK"};
-}
-
-const remove_patient_medicine = async function (medicine_id) {
-    const record = await PatientMedicine.findByPk(medicine_id);
-
 }
 
 const get_doctors = async function (city, name, specialization) {
@@ -281,7 +317,8 @@ const register_doctor = async function (account_id, firstName, lastName, nationa
         specialization: specialization,
         province: province,
         city: city,
-        schedule: schedule
+        schedule: schedule,
+        session_time: 15,
     });
     await doctor.save();
     const account = await Account.findById(account_id);
@@ -291,7 +328,7 @@ const register_doctor = async function (account_id, firstName, lastName, nationa
     return doctor;
 }
 
-const set_doctor_schedule = async function (doctor_id, schedule) {
+const set_doctor_schedule = async function (account_id, schedule) {
     const doctor = await Doctor.findById(doctor_id);
     doctor.schedule = schedule.map((s, index) => {
         return {start_hour: s.startHour,
@@ -364,9 +401,14 @@ const get_reservations = async function (account_id, only_active) {
 }
 
 const create_chat = async function (account_id1, account_id2) {
-    // account 2 is doctor
+    // account_id2 could be patient_id or doctor_id
     if (!account_id2) throw new Error(errors.USER_NOT_FOUND.error_code);
-    account2 = await Account.findOne({doctor_id: account_id2});
+    account2 = await Account.findOne({
+        $or: [
+            { doctor_id: account_id2},
+            { patient_id: account_id2 }
+        ]
+    });
     if (!account2) {
         throw new Error(errors.USER_NOT_FOUND.error_code);
     }
@@ -398,7 +440,8 @@ function truncateString(str, num) {
     }
 }
 
-const get_chat_list = async function (account_id) {
+// gets the list of chats for a user. unread is a boolean, if true, the function will only return chats with unread messages.
+const get_chat_list = async function (account_id, unread) {
     const chats = await Chat.find({
         $or: [
             { user1: account_id },
@@ -422,12 +465,16 @@ const get_chat_list = async function (account_id) {
                 name: otherUser.name,
             },
             last_message: {
-                preview: lastMessage ? truncateString(lastMessage.text, 40) : null,
-                time: lastMessage ? lastMessage.createdAt : null
+                preview: lastMessage?.text ? truncateString(lastMessage.text, 40) : lastMessage?.image_name? 'تصویر' : 'پیامی وجود ندارد.',
+                time: lastMessage?.createdAt ? lastMessage.createdAt : null
             }
         };
     }));
+    const sortedChatList = chatListWithDetails.sort((a, b) => {
+        return new Date(b.last_message.time) - new Date(a.last_message.time);
+    });
 
+    if (unread) return chatListWithDetails.filter(chat => chat.unread > 0);
     return chatListWithDetails;
 }
 
@@ -456,67 +503,61 @@ const seen_message = async function (user_id, message_id) {
     return 'ok';
 }
 
-const subscribe_push = async function (account_id, subscription) {
-    await PushSubscription.upsert({
-        account_id: account_id,
-        endpoint: subscription.endpoint,
-        p256dh: subscription.keys.p256dh,
-        auth: subscription.keys.auth
-    }).catch(err => {
-        console.error(err);
-    });
+const get_latest_parameters = async function (patient_id) {
+    const latestParameters = await Parameter.aggregate([
+        {
+            $match: { patient_id: patient_id }
+        },
+        {
+            $sort: { created_at: -1 }
+        },
+        {
+            $group: {
+                _id: "$parameter",
+                latestValue: { $first: "$value" },
+                createdAt: { $first: "$created_at" }
+            }
+        },
+        {
+            $project: {
+                parameter: "$_id",
+                latestValue: 1,
+                createdAt: 1,
+                _id: 0
+            }
+        }
+    ]);
+    return latestParameters;
 }
 
-const send_push = async function (account_id, title, body) {
-    try {
-        const subscription = await PushSubscription.findOne({
-            where: {
-                account_id: account_id
-            }
-        });
-        if (!subscription) {
-            return;
-        }
-        const subscription_object = {
-            endpoint: subscription.endpoint,
-            keys: {
-                p256dh: subscription.p256dh,
-                auth: subscription.auth
-            }
-        }
-        const settings = {
-            web: {
-                vapidDetails: {
-                    subject: "mailto:s.hosseini306@gmail.com",
-                    publicKey: publicVapidKey,
-                    privateKey: privateVapidKey,
-                },
-                gcmAPIKey: "gcmkey",
-                TTL: 2419200,
-                contentEncoding: "aes128gcm",
-                headers: {},
-            },
-            isAlwaysUseFCM: false,
-        };
-        const push = new PushNotifications(settings);
-        const payload = {
-            title: title,
-            body: body
-        };
-        await push.send(subscription_object, payload, (err, result) => {
-            if (err) {
-                console.log(err);
-            } else {
-                console.log(result);
-            }
-        });
-    } catch (err) {
-        console.error(err)
+const get_doctor_meetings = async function (doctor_id) {
+    const reservations = await Reservation.find({ doctor_id: doctor_id })
+        .populate('patient_id', 'first_name last_name national_code city gender birthdate weight height blood_type condition_description condition_history family_history allergies medicines profile_picture');
+    return reservations;
+}
+
+const get_doctor = async function (doctor_id){
+    const doctor = await Doctor.findOne({_id: doctor_id});
+    return {
+        name: `${doctor.first_name} ${doctor.last_name}`
     }
 }
+
+const get_hospital_info = async function (hospital_id){
+    const hospital = await Hospital.findOne({_id: hospital_id});
+    return hospital;
+}
+
+const connect_telegram = async function(account_id, telegram_id) {
+    // called when a user starts the telegram bot. it will link their telegram id to their account.
+    // TODO: use some sort of token instead of account id for this function.
+    const account = await Account.findOne({_id: account_id});
+    account.telegram_id = telegram_id;
+    await account.save();
+    return;
+}
+
 module.exports = {
-    subscribe_push,
-    send_push,
     login,
     signup_mobile,
     confirm_otp,
@@ -554,4 +595,11 @@ module.exports = {
     get_chat_list,
     seen_message,
     register_device,
+    get_latest_parameters,
+    get_account_by_id,
+    get_doctor_meetings,
+    get_doctor,
+    connect_telegram,
+    add_to_watchlist,
+    get_hospital_info,
 }
