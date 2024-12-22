@@ -3,7 +3,7 @@ const jwt = require('jsonwebtoken');
 SUPER_SECRET_KEY = "12345";
 
 function generateAccessToken(account_id) {
-    return jwt.sign(account_id, SUPER_SECRET_KEY, {expiresIn: '18000s'});
+    return jwt.sign(account_id, SUPER_SECRET_KEY, {expiresIn: '180000s'});
 }
 
 function authenticateToken(req, res, next) {
@@ -12,7 +12,7 @@ function authenticateToken(req, res, next) {
 
     if (token == null) return res.sendStatus(401)
     jwt.verify(token, SUPER_SECRET_KEY, (err, user) => {
-        console.log(err)
+        // console.log(err)
 
         if (err) return res.sendStatus(403)
 

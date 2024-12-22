@@ -1,287 +1,878 @@
 const express = require('express')
+const { createServer } = require("http");
+const { Server } = require("socket.io");
+const mqtt = require('mqtt');
+const { query, body, validationResult } = require('express-validator');
 const bodyParser = require('body-parser')
 const cors = require('cors');
 const multer = require("multer");
-const upload = multer({dest: "uploads/"});
+// const upload = multer({ dest: "uploads/" });
 const app = express()
 const port = 3000
-const db = require('./db')
-const {application} = require("express");
-const handlers = require('./application')
-const {generateAccessToken, authenticateToken} = require('./jwt')
-app.use(bodyParser.urlencoded({extended: true}))
+const { application } = require("express");
+const handlers = require('./application');
+const {authenticateToken } = require('./jwt');
+const errors = require('./errors');
+const winston = require('winston');
+const { validate } = require("node-cron");
+const constants = require('./constants');
+const jwt = require("jsonwebtoken");
+const {get_account_by_id, capture_parameter} = require("./application");
+
+const logger = winston.createLogger({
+    level: 'info', format: winston.format.json(), transports: [new winston.transports.Console()],
+});
+
+logger.info('Hello from Winston logger!')
+
+app.use(bodyParser.urlencoded({ extended: true }))
 
 app.use(bodyParser.json())
 
 app.use(cors())
 
-app.listen(port, () => {
-    console.log(`Example app listening on port ${port}`)
-})
+const httpServer = createServer(app);
+
+const usersSocketConnections = new Map();
+
+const io = new Server(httpServer, {
+    path: '/api/socket.io',
+    // TODO: socket
+    // cors: {
+    //     origin: 'http://localhost:3001',
+    //     methods: ['GET', 'POST']
+    // }
+});
+
+io.use((socket, next) => {
+    const token = socket.handshake.auth.token;
+    if (!token) {
+        return next(new Error("Authentication error"));
+    }
+
+    jwt.verify(token, '12345', (err, decoded) => {
+        if (err) {
+            return next(new Error("Authentication error"));
+        }
+        socket.account_id = decoded.account_id;
+        next();
+    });
+});
+
+io.on('connection', (socket) => {
+    // Add user to the connected users map
+    usersSocketConnections.set(socket.account_id, socket.id);
+    console.log(`User ${socket.account_id} connected with socket ID ${socket.id}`);
+
+    // Listen for `sendMessageToUser` events for targeted messages
+    socket.on('sendMessageToUser', ({ targetUserId, message }) => {
+        const targetSocketId = usersSocketConnections.get(targetUserId);
+        if (targetSocketId) {
+            io.to(targetSocketId).emit('receiveMessage', message);
+        } else {
+            console.log(`User ${targetUserId} is not connected`);
+        }
+    });
+
+    // Clean up when a user disconnects
+    socket.on('disconnect', () => {
+        console.log(`User ${socket.account_id} disconnected`);
+        usersSocketConnections.delete(socket.account_id);
+    });
+});
+
+httpServer.listen(port);
+
+
+// Connect to the RabbitMQ server using the MQTT plugin
+const mqttClient = mqtt.connect(process.env.RABBIT_URI, {username: process.env.RABBIT_USER, password: process.env.RABBIT_PASSWORD});
+
+// Subscribe to a topic
+mqttClient.on('connect', () => {
+    console.log('Connected to RabbitMQ MQTT');
+    mqttClient.subscribe('testing', (err) => {
+        if (!err) {
+            console.log('Subscribed to topic');
+        } else {
+            console.error('Subscription error:', err);
+        }
+    });
+});
+
+// Handle incoming messages
+mqttClient.on('message', async (topic, message) => {
+    console.log(`Received message on topic ${topic}: ${message.toString()}`);
+    try {
+        const convertedMessage = JSON.parse(message.toString());
+        console.log(convertedMessage);
+        const {device_id, parameter, value} = convertedMessage;
+        const {socket_payloads} = await handlers.capture_parameter(device_id, parameter, value);
+        socket_payloads.forEach(socket_payload => {
+            console.log(usersSocketConnections.get(socket_payload.account_id.toString()), socket_payload)
+            io.to(usersSocketConnections.get(socket_payload.account_id.toString())).emit('receiveParameter', socket_payload);
+        })
+    } catch (e) {
+        console.error(e);
+    }
+});
+
+const storage = multer.diskStorage({
+    destination: (req, file, cb) => {
+        cb(null, 'uploads/');
+    },
+    filename: (req, file, cb) => {
+        cb(null, `${Date.now()}-${file.originalname}`);
+    },
+});
+
+const upload = multer({ storage: storage });
+
+app.post('/api/v1/upload', upload.single('image'), (req, res) => {
+    try {
+        res.status(200).json({ message: 'File uploaded successfully', file: req.file });
+    } catch (error) {
+        res.status(500).json({ message: 'Error uploading file', error });
+    }
+});
 
 app.post("/subscribe", authenticateToken, async (req, res) => {
     console.log(req.body);
     const subscription = req.body;
     await handlers.subscribe_push(req.user.account_id, subscription);
-    res.send({result: "OK"});
+    res.send({ result: "OK" });
 });
 
-app.get('/', (req, res) => {
+app.get('/api/server/test', (req, res) => {
     res.send('Hello World!')
 })
 
-app.post('/signup', async (req, res) => {
-    const {username, password, role, name, phone_number} = req.body;
-    const response = await handlers.signup(username, password, role, name, phone_number);
-    res.json(response);
-});
-
-app.post('/register_patient', authenticateToken, async (req, res) => {
-    const {name, height, age, city, conditions, birthdate} = req.body;
-    const response = await handlers.register_patient(req.user, name, age, height, conditions, city, birthdate);
-    res.send(response);
-})
-
-app.post('/get_patient_parameter', async (req, res) => {
-    const {patient_id, parameter} = req.body;
-    const response = await handlers.get_patient_parameter(patient_id, parameter);
-    res.send(response);
-});
-
-app.post('/send_spo', async (req, res) => {
-    const {account_id, spo} = req.body;
-    const response = await handlers.record_spo(account_id, spo);
-    res.send(response);
-});
-
-app.post('/get_spo', async (req, res) => {
-    const {account_id} = req.body;
-    const response = await handlers.get_spo(account_id);
-    res.send(response);
-});
-
-app.post('/send_location', async (req, res) => {
-    const {account_id, latitude, longitude} = req.body;
-    const response = await handlers.send_location(account_id, latitude, longitude);
-    res.send(response);
-});
-
-app.post('/get_location', async (req, res) => {
-    const {account_id} = req.body;
-    const response = await handlers.get_location(account_id);
-    res.send(response);
-});
-app.post('/send_temperature', async (req, res) => {
-    const {account_id, temperature} = req.body;
-    const response = await handlers.send_temperature(account_id, temperature);
-    res.send(response);
-});
-
-app.post('/get_temperature', async (req, res) => {
-    const {account_id} = req.body;
-    const response = await handlers.get_temperature(account_id);
-    res.send(response);
-});
-
-app.post('/get_patient_status', async (req, res) => {
-    const {account_id} = req.body;
-    const response = await handlers.get_patient_status(account_id);
-    res.send(response);
-});
-
-app.post('/add_notes', upload.single("image"), async (req, res) => {
-    const image = req.file?.filename;
-    const {patient_id, note, note_title} = req.body;
-    const response = await handlers.add_notes('1', patient_id, note, image, note_title);
-    res.send(response);
-});
-
-app.post('/get_notes', authenticateToken, async (req, res) => {
-    const {patient_id} = req.body;
-    const response = await handlers.get_notes(patient_id);
-    res.send(response);
-});
-
-app.post('/get_heart_rates', authenticateToken, async (req, res) => {
-    const {patient_id} = req.body;
-    const heart_rates = await handlers.get_heart_rate(patient_id);
-    res.send(heart_rates);
-})
-
-
-app.post('/get_patients_list', authenticateToken, async (req, res) => {
-    const account_id = req.user.account_id;
-    const response = await handlers.get_patients_list(account_id);
-    console.log(response);
-    res.send(response);
-})
-
-app.post('/get_patient_overview', authenticateToken, async (req, res) => {
-    const {patient_id} = req.body;
-    const response = await handlers.get_patient_overview(patient_id);
-    // sleep for one second
-    await new Promise(resolve => setTimeout(resolve, 1000));
-    res.send(response);
-})
-
-app.get('/get_condition_names', (req, res) => {
-    res.send(
-        [
-            {
-                value: 'Asthma',
-                label: 'آسم'
-            },
-            {
-                value: 'Diabetes',
-                label: 'دیابت'
-            },
-            {
-                value: 'Obesity',
-                label: 'چاقی'
-            },
-            {
-                value: 'Cancer',
-                label: 'سرطان'
-            }
-        ]
-    );
-});
-
-
-app.get('/get_meds_names', (req, res) => {
-    res.send(
-        [
-            {
-                value: 'ACT',
-                label: 'استامینوفن'
-            },
-            {
-                value: 'PNC',
-                label: 'پنی سیلین'
-            },
-            {
-                value: 'IBP',
-                label: 'ایبوپروفن'
-            }
-        ]
-    );
-});
-
-app.get('/get_parameters_names', (req, res) => {
-    res.send(
-        [
-            {
-                value: 'HEART_RATE',
-                label: 'ضربان قلب'
-            },
-            {
-                value: 'BLOOD_SUGAR',
-                label: 'قند خون'
-            },
-            {
-                value: 'BLOOD_PRESSURE',
-                label: 'فشار خون'
-            }
-        ]
-    );
-});
-
-app.post('/send_parameter', authenticateToken, async (req, res) => {
-    const {parameter, value, date, patient_id} = req.body;
-    const response = await handlers.send_parameter(patient_id, parameter, value, date);
-    res.send(response);
-});
-
-app.post('/get_patient_parameters', authenticateToken, async (req, res) => {
-    const {patient_id} = req.body;
-    const response = await handlers.get_patient_parameters(patient_id);
-    res.json(response);
-});
-
-app.post('/set_parameter_limits', authenticateToken, async (req, res) => {
-    const {patient_id, parameter, lower_limit, upper_limit} = req.body;
-    const response = await handlers.set_parameter_limits(patient_id, parameter, lower_limit, upper_limit);
-    res.send(response);
-});
-
-app.post('/get_prescriptions', authenticateToken, async (req, res) => {
-    const {patient_id} = req.body;
-    const response = await handlers.get_patient_prescriptions(patient_id);
-    res.send(response);
-});
-
-app.post('/add_prescription', authenticateToken, async (req, res) => {
-    const {patient_id, prescriptions, dosage, amount} = req.body;
-    const response = await handlers.add_prescription(patient_id, prescriptions, dosage, amount);
-    res.send(response);
-});
-
-app.post('/delete_prescription', authenticateToken, async (req, res) => {
-    const {patient_id, prescription} = req.body;
-    const response = await handlers.delete_prescription(patient_id, prescription);
-    res.send(response);
-});
-
-app.post('/delete_notes', authenticateToken, async (req, res) => {
-    const {id} = req.body;
-    const response = await handlers.delete_note(id);
-    res.send(response);
-});
-
-app.post('/add_reminder', authenticateToken, async (req, res) => {
-    const {patient_id, reminderText: reminder, date} = req.body;
-    const response = await handlers.add_reminder(patient_id, reminder, date);
-    res.send(response);
-})
-
-app.post('/get_reminders', authenticateToken, async (req, res) => {
-    const {patient_id} = req.body;
-    const response = await handlers.get_reminders(patient_id);
-    res.send(response);
-});
-
-app.post('/delete_reminder', authenticateToken, async (req, res) => {
-    const {id} = req.body;
-    const response = await handlers.delete_reminder(id);
-    res.send(response);
-});
-
-app.post('/login', async (req, res) => {
-    const {username, password} = req.body;
-    const token = await handlers.login(username, password);
-    res.json(token);
-});
-
-app.get('/uploads/:file', async (req, res) => {
-    const {file} = req.params;
+app.get('/api/v1/uploads/:file', async (req, res) => {
+    const { file } = req.params;
     res.sendFile(__dirname + '/uploads/' + file);
 })
 
-app.post('/get_hospitals', async (req, res) => {
-    res.send([
-        {
-            lat: 35.70,
-            lng: 51.41,
-            name: 'درمانگاه یادگار',
-            address: 'بزرگراه یادگار امام، پلاک ۲۱',
-            website: 'https://yadegarclinic.com/',
-            image: 'http://localhost:3000/uploads/yadegar.png'
-        },
-        {
-            lat: 35.80,
-            lng: 51.51,
-            name: 'بیمارستان پیامبران',
-            address: 'بزرگراه یادگار امام، پلاک ۲۱',
-            website: 'https://sinahospital.tums.ac.ir/',
-            image: 'http://localhost:3000/uploads/payambar.png'
-        },
-        {
-            lat: 35.60,
-            lng: 51.31,
-            name: 'بیمارستان سینا',
-            address: 'بزرگراه یادگار امام، پلاک ۲۱',
-            website: 'https://sinahospital.tums.ac.ir/',
-            image: 'http://localhost:3000/uploads/sina.png'
+
+const handle_api_error = function (err, req, res, next) {
+    console.log('here');
+    console.error(`ERROR at endpoint: ${req.url}, request body: ${JSON.stringify(req.body)}, error: ${err}, stack trace: ${err.stack}`);
+    const error_string = errors[err.message];
+    if (error_string) {
+        res.status(error_string.status_code);
+        res.send({ error: error_string.error_string });
+    } else {
+        res.status(500);
+        res.send({ error: 'Internal server error' });
+    }
+}
+
+const validate_api = function (req, res, next) {
+    const api_validation_result = validationResult(req);
+    if (!api_validation_result.isEmpty()) {
+        res.status(400);
+        res.send({ errors: api_validation_result.array() });
+    } else next();
+}
+
+app.post('/api/v1/user/login',
+    body('phoneNumber').notEmpty(),
+    body('password').notEmpty(),
+    validate_api,
+    async (req, res, next) => {
+        try {
+            console.log(`POST /api/v1/user/login, req.body: ${JSON.stringify(req.body)}`);
+            const { phoneNumber, password } = req.body;
+            const response = await handlers.login(phoneNumber, password);
+            res.send(response);
+        } catch (e) {
+            next(e);
         }
-    ])
-})
+    });
+
+app.post('/api/v1/user/signup',
+    body('phoneNumber').isMobilePhone('ir-IR'),
+    body('password').isLength({ min: 3, max: 255 }),
+    body('role').isIn(['doctor', 'patient']),
+    validate_api,
+    async (req, res, next) => {
+        try {
+            console.log(`POST /api/v1/user/signup, req.body: ${JSON.stringify(req.body)}`);
+            const { phoneNumber, password, role } = req.body;
+            await handlers.signup_mobile(phoneNumber, password, role);
+            res.send({ response: 'کد یکبار مصرف به شماره تلفن شما پیامک شد.' });
+        } catch (e) {
+            next(e);
+        }
+    }
+);
+
+app.post('/api/v1/user/signup-otp',
+    body('phone_number').isMobilePhone('ir-IR'),
+    body('otp').notEmpty(),
+    validate_api,
+    async (req, res, next) => {
+        try {
+            const { phone_number, otp } = req.body;
+            const response = await handlers.confirm_otp(phone_number, otp);
+            res.send(response);
+        } catch (e) {
+            next(e);
+        }
+    }
+);
+
+app.post('/api/v1/user/forget_password',
+    body("phone_number").isMobilePhone('ir-IR'),
+    validate_api,
+    async (req, res, next) => {
+        try {
+            const { phone_number } = req.body;
+            await handlers.forget_password(phone_number);
+            res.send({ response: "کد تایید برای شماره همراه وارد شده پیامک می شود." });
+        } catch (e) {
+            next(e);
+        }
+    });
+
+app.post('/api/v1/user/reset_password',
+    body('password').isLength({ min: 4 }),
+    validate_api,
+    authenticateToken,
+    async (req, res, next) => {
+        try {
+            const { password } = req.body;
+            await handlers.reset_password(req.user.account_id, password);
+            res.send({ response: "تغییر رمز با موفقیت انجام شد." });
+        } catch (e) {
+            next(e);
+        }
+    }
+);
+
+app.post('/api/v1/patient/register',
+    body('firstName').isString(),
+    body('lastName').isString(),
+    body('nationalCode').isString(),
+    body('city').isString(),
+    body('gender').isString(),
+    // body('birthdate').notEmpty(),
+    body('weight').isInt({ min: 1, max: 1000 }),
+    body('height').isInt({ min: 1, max: 300 }),
+    body('bloodType').isIn(['A+', 'A-', 'B+', 'B-', 'AB+', 'AB-', 'O+', 'O-']),
+    validate_api,
+    authenticateToken,
+    async (req, res, next) => {
+        try {
+            const { firstName, lastName, nationalCode, city, gender, birthdate, weight, height, bloodType } = req.body;
+            const response = await handlers.register_new(req.user.account_id, firstName, lastName, nationalCode, city, gender, birthdate, weight, height, bloodType);
+            res.send(response);
+        } catch (err) {
+            next(err);
+        }
+    }
+);
+
+app.post('/api/v1/doctor/register',
+    body('firstName').isString(),
+    body('lastName').isString(),
+    body('nationalCode').isString(),
+    body('nezamCode'),
+    body('specialization'),
+    body('province'),
+    body('city').isString(),
+    body('schedule'),
+    validate_api,
+    authenticateToken,
+    async (req, res, next) => {
+        try {
+            const { firstName, lastName, nationalCode, nezamCode, specialization, province, city, schedule } = req.body;
+            const response = await handlers.register_doctor(req.user.account_id, firstName, lastName, nationalCode, nezamCode, specialization, province, city);
+            res.send(response);
+        } catch (err) {
+            next(err);
+        }
+    }
+);
+
+app.post('/api/v1/doctor/schedule',
+    authenticateToken,
+    async (req, res, next) => {
+        try {
+            console.log(req.body);
+            const {account_id} = req.user.account_id;
+            const {workingDays} = req.body;
+            for (workingDay in workingDays) {
+            //     validate the input
+                if (workingDays.startHour === "" || workingDays.endHour === "" || workingDays.startHour > workingDays.endHour) {
+                    throw new Error('INVALID_INPUT');
+                }
+            }
+            const response = handlers.set_doctor_schedule(account_id, workingDays);
+            res.send(response)
+        } catch (e) {
+            next(e);
+        }
+    }
+);
+
+app.get('/api/v1/patient/parameters', async (req, res, next) => {
+    try {
+        const condition_names = await handlers.get_condition_names();
+        const blood_types = constants.BLOOD_TYPES;
+        const medicine_names = await handlers.get_medicines_names();
+        const allergies_names = await handlers.get_allergies_names();
+        res.send({
+            condition_names,
+            blood_types,
+            medicine_names,
+            allergies_names
+        });
+    } catch (e) {
+        next(e);
+    }
+});
+
+app.post('/api/v1/patient/set_condition_description',
+    body('conditionDescription').isString().isLength({ max: 1000 }),
+    validate_api,
+    authenticateToken,
+    async (req, res, next) => {
+        try {
+            const { conditionDescription } = req.body;
+            await handlers.set_condition_description(req.user.account_id, conditionDescription);
+            res.send({ response: "تغییر انجام شد." });
+        } catch (err) {
+            next(err);
+        }
+    }
+);
+
+app.post('/api/v1/patient/set_condition_history',
+    body('items').isArray(),
+    validate_api,
+    authenticateToken,
+    async (req, res, next) => {
+        try {
+            const {items} = req.body;
+            await handlers.set_conditions_history(req.user.account_id, items);
+            res.send({response: "تغییر انجام شد."});
+        } catch (e) {
+            next(e);
+        }
+    }
+);
+
+app.post('/api/v1/patient/set_family_history',
+    body('items').isArray(),
+    validate_api,
+    authenticateToken,
+    async (req, res, next) => {
+        try{
+            const { items } = req.body;
+            await handlers.set_family_history(req.user.account_id, items);
+            res.send({ response: "تغییر انجام شد." });
+        } catch(err) {
+            next(err);
+        }
+    }
+);
+
+app.post('/api/v1/patient/set_medicines',
+    body('items'),
+    validate_api,
+    authenticateToken,
+    async (req, res, next) => {
+        try {
+            const { items } = req.body;
+            await handlers.set_medicines(req.user.account_id, items);
+            res.send({ response: "تغییر انجام شد." });
+        } catch (err) {
+            next(err);
+        }
+    }
+);
+
+app.post('/api/v1/patient/set_allergies',
+    body('items'),
+    validate_api,
+    authenticateToken,
+    async (req, res, next) => {
+        try {
+            const { items } = req.body;
+            await handlers.set_allergies(req.user.account_id, items);
+            res.send({ response: "تغییر انجام شد." });
+        } catch (err) {
+            next(err);
+        }
+    }
+);
+
+app.get('/api/v1/patient/my_info', authenticateToken, async (req, res, next) => {
+    try {
+        const response = await handlers.get_patient(req.user.account_id);
+        response.profile_picture = 'sina.png';
+        res.send(response);
+    } catch (err) {
+        next(err);
+    }
+});
+
+
+app.post('/api/v1/patient/add_briefing',
+    body('patientId').notEmpty(),
+    body('description').notEmpty(),
+    validate_api,
+    async (req, res, next) => {
+        try {
+            const { patientId, description } = req.body;
+            const response = await handlers.add_briefing(patientId, "doctor_id", description);
+            res.send(response);
+        } catch (err) {
+            next(err);
+        }
+    }
+);
+
+app.post('/api/v1/patient/update_briefing',
+    body('briefing_id').isString(),
+    body('description').isString(),
+    validate_api,
+    async (req, res, next) => {
+        try {
+            const { briefing_id, description } = req.body;
+            const response = await handlers.update_briefing(briefing_id, description);
+            res.send(response);
+        }catch(e) {
+            next(e);
+        }
+    }
+);
+
+app.post('/api/v1/patient/delete_briefing',
+    body('briefing_id').isString(),
+    validate_api,
+    async (req, res, next) => {
+        try {
+            const { briefing_id } = req.body;
+            const response = await handlers.delete_briefing(briefing_id);
+            res.send(response);
+        } catch (e) {
+            next(e);
+        }
+    }
+);
+
+
+app.get('/api/v1/patient/parameter_names',
+    async (req, res, next) => {
+        try {
+            const response = await handlers.get_parameter_names();
+            res.send(response);
+        } catch (e) {
+            next(e);
+        }
+    }
+);
+
+app.post('/api/v1/patient/capture_parameter',
+    body('patient_id').isString(),
+    body('parameter').isString(),
+    body('value').notEmpty(),
+    validate_api,
+    async (req, res, next) => {
+        try {
+            const { patient_id, parameter, value } = req.body;
+            const response = await handlers.capture_parameter(patient_id, parameter, value);
+            res.send(response);
+        } catch (e) {
+            next(e);
+        }
+    }
+);
+
+// TODO: this must be refactored for the new parameters page
+app.post('/api/v1/patient/get_parameters',
+    body('patient_id').notEmpty(),
+    validate_api,
+    async (req, res, next) => {
+        try {
+            const response = await handlers.get_parameters(patient_id);
+            res.send(response);
+        } catch (e) {
+            next(e);
+        }
+    }
+);
+
+//         {
+//             parameter_name: 'Heart Rate',
+//             value: 80,
+//             unit: 'BPM'
+//         }
+
+app.get('api/v1/doctor/get_patient_parameters', authenticateToken, async (req, res, next) => {
+   try {
+       const {patient_id} = req.query;
+         const response = await handlers.get_latest_parameters(patient_id);
+   } catch (e) {
+       next(e);
+   }
+});
+
+app.get('/api/v1/patient/last_parameters',
+    authenticateToken,
+    handlers.get_account_by_id,
+    async (req, res, next) => {
+        try {
+            const patient_id = req.account.role === "patient"? req.account.patient_id.toString() : req.query.patient_id;
+            const response = await handlers.get_latest_parameters(patient_id);
+            res.send(response);
+        } catch (e) {
+            next(e);
+        }
+    }
+    );
+
+app.post('/api/v1/patient/medicine/add',
+    body('medicineName').isString(),
+    body('dosage').isNumeric(),
+    body('amount').isNumeric(),
+    body('repeatCount').isInt(),
+    body('unit').isString(),
+    body('description').isString(),
+    body('withFood').isString(),
+    validate_api,
+    authenticateToken,
+    async (req, res, next) => {
+        try {
+            const { account_id } = req.user.account_id;
+            const { medicineName, dosage, amount, repeatCount, unit, description, withFood } = req.body;
+            const response = await handlers.add_patient_medicine(account_id, medicineName, dosage, amount, repeatCount, unit, description, withFood);
+        res.send(response);
+        } catch (err) {
+            next(err);
+        }
+    }
+);
+
+app.post('/api/v1/doctor/add_prescription',
+    body('patient_id').notEmpty(),
+    body('doctor_id').notEmpty(),
+    body('medicines').isArray(),
+    body('note').notEmpty(),
+    validate_api,
+    async (req, res, next) => {
+        try {
+            const { patient_id, doctor_id, medicines, note } = req.body;
+            const response = await handlers.add_prescription(patient_id, doctor_id, medicines, note);
+            res.send(response);
+        } catch (e) {
+            next (e);
+        }
+    }
+);
+
+app.get('/api/v1/hospital/list',
+    async (req, res, next) => {
+        try {
+            const { city, latitude, longitude } = req.query;
+            const response = await handlers.get_hospitals(city, latitude, longitude);
+            res.send(response);
+        } catch (e) {
+            next (e);
+        }
+    });
+
+app.get('/api/v1/hospital/info',
+    async (req, res, next) => {
+        try {
+            const { hospitalId } = req.query;
+            const response = await handlers.get_hospital_info(hospitalId);
+            res.send(response);
+        } catch (e) {
+            next (e);
+        }
+    });
+
+app.get('/api/v1/doctor/list',
+    async (req, res, next) => {
+        try {
+        const { city, name, specialization } = req.query;
+        const response = await handlers.get_doctors(city, name, specialization);
+        res.send(response);
+        } catch (e) {
+            next (e);
+        }
+    }
+);
+
+app.post('/api/v1/doctor/specializations_list', async (req, res, next) => {
+    res.send(constants.DOCTORS_SPECIALIZATION);
+});
+
+app.get('/api/v1/doctor/available_times',
+    async (req, res, next) => {
+        try {
+            const { doctor_id, date } = req.query;
+            const response = await handlers.get_available_times(doctor_id, date);
+            res.send(response);
+        } catch (err) {
+            next(err);
+        }
+    }
+);
+
+app.post('/api/v1/doctor/reserve_time',
+    authenticateToken,
+    async (req, res, next) => {
+        try {
+            const { doctor_id, date, time_slot } = req.body;
+            const response = await handlers.reserve_time(req.user.account_id, doctor_id, date, time_slot);
+            res.send(response);
+        } catch (e) {
+            next(e);
+        }
+    });
+
+app.get('/api/v1/reservations/list',
+    query('only_active').isBoolean(),
+    authenticateToken,
+    async (req, res, next) => {
+        try {
+            const only_active = req.query.only_active === 'true';
+            const response = await handlers.get_reservations(req.user.account_id, only_active);
+            res.send(response);
+        } catch (e) {
+            next(e);
+        }
+    }
+);
+
+app.get('/api/v1/doctor/introduction',
+    query('doctorId').notEmpty(),
+    async (req, res, next) => {
+        try {
+            const { doctorId } = req.query;
+            const response = await handlers.get_doctor_introduction(doctorId);
+            response.description = "ایشان مدرک دکتری عمومی خود را در سال ۱۳۹۰ از دانشگاه تهران دریافت کردند."
+            console.log(response);
+            res.send(response);
+        } catch (err) {
+            next(err);
+        }
+    });
+
+app.get('/api/v1/patient/notifications',
+    // authenticateToken,
+    async (req, res) => {
+        res.send({
+            urgentReminders: [
+                {
+                    title: 'ضربان غیر طبیعی',
+                    body: 'ضربان قلب شما بیش از حد زیاد است',
+                    type: 'criticalAlert',
+                    actionButton: 'تماس با پزشک',
+                    actionButtonLink: '/user/patient/emergency',
+                },
+            ],
+            currentReminders: [
+                {
+                    title: 'یادآور دارو',
+                    body: 'استامینوفن',
+                    type: 'meds'
+                },
+                {
+                    title: 'ملاقات با دکتر حسینی',
+                    body: 'نوبت شما ساعت ۱۷:۱۵ است.',
+                    type: 'doctorVisit',
+                    actionButton: 'اطلاعات بیشتر'
+                }
+            ]
+        });
+    }
+);
+
+// v1/doctor/patients
+app.get('/api/v1/doctor/patients',
+    // authenticateToken,
+    async (req, res) => {
+        const { page, limit, urgent } = req.query;
+        // const {doctor_id} = req.user.account_id;
+        console.log(page, limit, urgent);
+        res.send([
+            {
+                name: 'شهاب مقدم',
+                place: 'در بیمارستان',
+                status_text: 'وضعیت پایدار',
+                status_code: 'stable',
+                image: '/sina.png',
+                profile_link: '/user/doctor/pid',
+                profile_picture: 'sina.png',
+            }
+        ]);
+    }
+);
+
+let shitCounter = 0;
+
+// v1/doctor/meetings
+app.get('/api/v1/doctor/meetings',
+     authenticateToken,
+    get_account_by_id,
+    async (req, res) => {
+        const { page, limit } = req.query;
+        console.log(page, limit);
+        const response = await handlers.get_doctor_meetings(req.account.doctor_id.toString());
+        res.send({items: response});
+    });
+
+// v1/doctor/info
+app.get('/api/v1/doctor/info',
+     authenticateToken,
+    get_account_by_id,
+    async (req, res, next) => {
+        try{
+            const {doctor_id} = req.account;
+            response = await handlers.get_doctor(doctor_id.toString())
+            res.send(response)
+        } catch (e) {
+            next(e);
+        }
+    });
+
+app.get('/api/v1/general/provinces',
+    async (req, res) => {
+        res.send(constants.PROVINCES);
+    }
+)
+
+app.get('/api/v1/general/province', 
+    async (req, res) => {
+        const { provinceName, provinceId } = req.query;
+        const ppp = constants.ALL_CITIES.filter(province => {
+            return (provinceId && province.provinceId === provinceId) || 
+                   (provinceName && province.provinceName.toLowerCase() === provinceName.toLowerCase());
+          });
+          if (ppp.length === 0) res.send({});
+        res.send(ppp[0]);
+    }
+);
+
+app.get('/api/v1/user/chats',
+    authenticateToken,
+    async (req, res, next) => {
+        try {
+            const {account_id} = req.user;
+            const {unread} = req.query;
+            const response = await handlers.get_chat_list(account_id, unread==="true");
+            res.send(response);
+        } catch (err) {
+            next(err);
+        }
+    }
+);
+
+// create a new chat
+app.post('/api/v1/user/chats', authenticateToken, async (req, res, next) => {
+    try {
+        const response = await handlers.create_chat(req.user.account_id, req.body.doctor_id);
+        res.send(response);
+    } catch (e) {
+        next(e);
+    }
+});
+
+app.post ('/api/v1/user/chats/send', authenticateToken, async function (req, res, next) {
+    try {
+        const sender_id = req.user.account_id;
+        const { chat_id, text, image_name } = req.body;
+        const {message, chat} = await handlers.send_message(sender_id, chat_id, text, image_name);
+        console.log(chat);
+        // TODO: These should be put somewhere else.
+        io.to(usersSocketConnections.get(chat.user1.toString())).emit('receiveMessage', message);
+        io.to(usersSocketConnections.get(chat.user2.toString())).emit('receiveMessage', message);
+        res.send(message);
+    } catch (err) {
+        next(err);
+    }
+});
+
+app.get('/api/v1/user/chats/messages', authenticateToken, async (req, res, next) => {
+    try {
+        const {account_id} = req.user;
+        const {chatId} = req.query;
+        console.log(chatId);
+        const messages = await handlers.get_messages(chatId, account_id);
+        res.send({
+            messages,
+            yourId: req.user.account_id
+        });
+    } catch (err) {
+        next(err);
+    }
+  });
+
+app.post('/api/v1/patient/register_device', authenticateToken, async (req, res, next) => {
+    try {
+        const {account_id} = req.user;
+        const {device_code} = req.body;
+        const response = await handlers.register_device(account_id, device_code);
+        res.send(response);
+    } catch (e) {
+        next(e);
+    }
+});
+
+//         {
+//             title: 'تخفیف ویژه برای تهیه‌ی دستگاه',
+//             body: 'شما می‌توانید تا ۳ روز آینده دستگاه پایش سلامت را با تخفیف ويژه خریداری کنید.',
+//             type: 'call',
+//             actionButton: 'تماس با واحد فروش',
+//             actionButtonLink: 'tel:09156289830'
+//         }
+// write a /patient/promotions API
+
+app.get('/api/v1/patient/promotions', authenticateToken, async (req, res, next) => {
+    const {account_id} = req.user;
+   try {
+       res.send([
+               {
+                   title: 'تخفیف ویژه برای تهیه‌ی دستگاه',
+                   body: 'شما می‌توانید تا ۳ روز آینده دستگاه پایش سلامت را با تخفیف ويژه خریداری کنید.',
+                   type: 'call',
+                   actionButton: 'تماس با واحد فروش',
+                   actionButtonLink: 'tel:09156289830'
+               }, {
+                   title: 'بدون دردسر نوبت ویزیت تهیه کنید!',
+                   body: 'شما می‌توانید به سرعت و به صورت آنلاین، از پزشکان ما نوبت بگیرید.',
+                   type: 'tick',
+                   actionButton: 'جستجو میان پزشکان',
+                   actionButtonLink: '/user/patient/doctors'
+               }, {
+               title: 'وارد ربات تلگرامی شوید!',
+               body: 'با استارت کردن ربات تلگرام، می‌توانید یادآورها و هشدارهای مربوط به خودتان را در تلگرام دریافت کنید.',
+               type: 'telegram',
+               actionButton: 'وصل شدن به ربات تلگرام',
+               actionButtonLink: `https://t.me/test_health_alerts_bot?start=${account_id}`
+               }
+           ]
+       );
+   } catch (e) {
+       next(e);
+   }
+});
+
+app.post('/api/v1/patient/add_doctor',
+    authenticateToken,
+    async (req, res, next) => {
+        try {
+            const {account_id} = req.user;
+            const {doctor_id} = req.body;
+            const response = await handlers.add_to_watchlist(account_id, doctor_id);
+            res.send(response);
+        } catch (e) {
+            next(e);
+        }
+    });
+
+// THIS MUST BE THE LAST MIDDLEWARE OR IT WON'T WORK. GOD I LOVE NODEJS AND EXPRESS
+app.use(handle_api_error);
