@@ -30,9 +30,11 @@ bot.start(async (ctx) => {
     }
 });
 
-const send_message = function (chat_id, message) {
+const send_message = async function (chat_id, message) {
     console.log(`sending message to ${chat_id}: ${message}`);
-    bot.telegram.sendMessage(chat_id, message);
+    bot.telegram.sendMessage(chat_id, message).catch(err => {
+        console.error(err);
+    })
 }
 
 bot.launch().catch(e => {
