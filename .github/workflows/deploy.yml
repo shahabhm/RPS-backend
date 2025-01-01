@@ -3,7 +3,7 @@ name: CI/CD Pipeline
 on:
   push:
     branches:
-      - wftest
+      - master
 
 jobs:
   deploy:
@@ -23,5 +23,5 @@ jobs:
             git pull
             git status
             cd ..
-            docker-compose build backend
-            docker-compose up -d backend
+            docker compose build backend
+            docker compose up -d backend
