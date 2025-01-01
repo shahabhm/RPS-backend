@@ -3,17 +3,25 @@ name: CI/CD Pipeline
 on:
   push:
     branches:
-      - master
+      - wftest
 
 jobs:
   deploy:
     runs-on: ubuntu-latest
 
     steps:
-      - name: Checkout Code
-        uses: actions/checkout@v3
-
-      - name: Build and Deploy All Services
-        run: |
-          docker-compose build
-          docker-compose up -d
+      - name: Deploy using ssh
+        uses: appleboy/ssh-action@master
+        with:
+          host: ${{ secrets.HOST }}
+          username: ${{ secrets.USERNAME }}
+          key: ${{ secrets.SSH_PRIVATE_KEY }}
+          port: 22
+          script: |
+            ls
+            cd RPS-backend
+            git pull
+            git status
+            cd ..
+            docker-compose build backend
+            docker-compose up -d backend
