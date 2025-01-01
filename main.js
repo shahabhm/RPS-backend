@@ -24,7 +24,7 @@ const logger = winston.createLogger({
     level: 'info', format: winston.format.json(), transports: [new winston.transports.Console()],
 });
 
-logger.info('Hello from Winston logger!');
+logger.info('Hello from Winston logger testing!');
 
 logger.info(`server is running in ${process.env.NODE_ENV} environment.`);
 
