@@ -238,11 +238,102 @@ const register_device = async function (account_id, device_code) {
     return {result: "OK"};
 }
 
-const get_parameters = async function (patient_id) {
+const get_parameters = async function (patient_id, parameter) {
     const parameters = await Parameter.find({
-        patient_id: patient_id
-    });
+        patient_id: patient_id,
+        parameter: parameter
+    }).limit(30).sort({created_at: -1});
     return parameters;
+}
+
+const get_parameter_statistics = async function (patient_id, parameter) {
+    const currentDate = new Date();
+    const oneMonthAgo = new Date(currentDate.setMonth(currentDate.getMonth() - 1));
+
+    const statistics = await Parameter.aggregate([
+        {
+            $match: {
+                patient_id: patient_id,
+                parameter: parameter,
+                created_at: { $gte: oneMonthAgo }
+            }
+        },
+        {
+            $group: {
+                _id: "$parameter",
+                minValue: { $min: "$value" },
+                maxValue: { $max: "$value" },
+                avgValue: { $avg: "$value" },
+                values: { $push: "$value" }
+            }
+        },
+        {
+            $project: {
+                parameter: "$_id",
+                minValue: 1,
+                maxValue: 1,
+                avgValue: 1,
+                values: 1,
+                _id: 0
+            }
+        }
+    ]);
+
+    if (statistics.length === 0) {
+        return { parameter: parameter, minValue: null, maxValue: null, avgValue: null, p10: null, p90: null };
+    }
+
+    const values = statistics[0].values.sort((a, b) => a - b);
+    const p10 = values[Math.floor(values.length * 0.1)];
+    const p90 = values[Math.floor(values.length * 0.9)];
+    const avgValue = (Math.round( statistics[0].avgValue * 100) / 100).toFixed(0);
+
+    return {
+        parameter: parameter,
+        minValue: statistics[0].minValue,
+        maxValue: statistics[0].maxValue,
+        avgValue: avgValue,
+        p10: p10,
+        p90: p90
+    };
+}
+
+const get_promotions = async function (account_id) {
+    const account = await Account.findOne({ _id: account_id }).populate('patient_id').populate('doctor_id');
+    const promotions = [];
+    const devices = await Device.find({patient_id: account.patient_id._id});
+    if (devices.length === 0) {
+        promotions.push({
+            title: 'تخفیف ویژه برای تهیه‌ی دستگاه',
+            body: 'شما می‌توانید تا ۳ روز آینده دستگاه پایش سلامت را با تخفیف ويژه خریداری کنید.',
+            type: 'call',
+            actionButton: 'تماس با واحد فروش',
+            actionButtonLink: 'tel:09156289830'
+        });
+    }
+
+    const reservations = await Reservation.find({ patient_id: account.patient_id._id });
+    if (account.patient_id && reservations.length === 0) {
+        promotions.push({
+            title: 'بدون دردسر نوبت ویزیت تهیه کنید!',
+            body: 'شما می‌توانید به سرعت و به صورت آنلاین، از پزشکان ما نوبت بگیرید.',
+            type: 'tick',
+            actionButton: 'جستجو میان پزشکان',
+            actionButtonLink: '/user/patient/doctors'
+        });
+    }
+
+    if (!account.telegram_id) {
+        promotions.push({
+            title: 'وارد ربات تلگرامی شوید!',
+            body: 'با استارت کردن ربات تلگرام، می‌توانید یادآورها و هشدارهای مربوط به خودتان را در تلگرام دریافت کنید.',
+            type: 'telegram',
+            actionButton: 'وصل شدن به ربات تلگرام',
+            actionButtonLink: `https://t.me/test_health_alerts_bot?start=${account_id}`
+        });
+    }
+
+    return promotions;
 }
 
 const add_prescription = async function (patient_id, doctor_id, medicines, note){
@@ -329,7 +420,8 @@ const register_doctor = async function (account_id, firstName, lastName, nationa
 }
 
 const set_doctor_schedule = async function (account_id, schedule) {
-    const doctor = await Doctor.findById(doctor_id);
+    const account = await Account.findOne({_id: account_id});
+    const doctor = await Doctor.findById(account.doctor_id);
     doctor.schedule = schedule.map((s, index) => {
         return {start_hour: s.startHour,
              end_hour: s.endHour,
@@ -527,7 +619,15 @@ const get_latest_parameters = async function (patient_id) {
             }
         }
     ]);
-    return latestParameters;
+
+    return latestParameters.map(param => {
+        const parameterInfo = PATIENT_PARAMETERS.find(p => p.name === param.parameter);
+        const unit = parameterInfo ? parameterInfo.unit : '';
+        return {
+            ...param,
+            unit: unit
+        };
+    });
 }
 
 const get_doctor_meetings = async function (doctor_id) {
@@ -572,6 +672,7 @@ module.exports = {
     delete_briefing,
     capture_parameter,
     get_parameters,
+    get_parameter_extremes: get_parameter_statistics,
     get_parameter_names,
     add_prescription,
     get_hospitals,
@@ -602,4 +703,5 @@ module.exports = {
     connect_telegram,
     add_to_watchlist,
     get_hospital_info,
+    get_promotions,
 }
