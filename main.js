@@ -19,11 +19,14 @@ const constants = require('./constants');
 const jwt = require("jsonwebtoken");
 const {get_account_by_id, capture_parameter} = require("./application");
 
+
 const logger = winston.createLogger({
     level: 'info', format: winston.format.json(), transports: [new winston.transports.Console()],
 });
 
-logger.info('Hello from Winston logger!')
+logger.info('Hello from Winston logger!');
+
+logger.info(`server is running in ${process.env.NODE_ENV} environment.`);
 
 app.use(bodyParser.urlencoded({ extended: true }))
 
@@ -490,18 +493,33 @@ app.post('/api/v1/patient/capture_parameter',
 );
 
 // TODO: this must be refactored for the new parameters page
-app.post('/api/v1/patient/get_parameters',
-    body('patient_id').notEmpty(),
+app.get('/api/v1/patient/get_parameters',
+        query('parameter').notEmpty(),
     validate_api,
     async (req, res, next) => {
+        const {parameter, patient_id} = req.query;
         try {
-            const response = await handlers.get_parameters(patient_id);
+            const response = await handlers.get_parameters(patient_id, parameter);
             res.send(response);
         } catch (e) {
             next(e);
         }
     }
 );
+
+app.get('/api/v1/patient/get_parameters_details',
+    query('parameter').notEmpty(),
+    validate_api,
+    async(req, res, next) => {
+        const {parameter, patient_id} = req.query;
+        try {
+            const response = await handlers.get_parameter_extremes(patient_id, parameter);
+            res.send(response);
+        } catch (e) {
+            next(e);
+        }
+    }
+    )
 
 //         {
 //             parameter_name: 'Heart Rate',
@@ -834,28 +852,30 @@ app.post('/api/v1/patient/register_device', authenticateToken, async (req, res, 
 app.get('/api/v1/patient/promotions', authenticateToken, async (req, res, next) => {
     const {account_id} = req.user;
    try {
-       res.send([
-               {
-                   title: 'تخفیف ویژه برای تهیه‌ی دستگاه',
-                   body: 'شما می‌توانید تا ۳ روز آینده دستگاه پایش سلامت را با تخفیف ويژه خریداری کنید.',
-                   type: 'call',
-                   actionButton: 'تماس با واحد فروش',
-                   actionButtonLink: 'tel:09156289830'
-               }, {
-                   title: 'بدون دردسر نوبت ویزیت تهیه کنید!',
-                   body: 'شما می‌توانید به سرعت و به صورت آنلاین، از پزشکان ما نوبت بگیرید.',
-                   type: 'tick',
-                   actionButton: 'جستجو میان پزشکان',
-                   actionButtonLink: '/user/patient/doctors'
-               }, {
-               title: 'وارد ربات تلگرامی شوید!',
-               body: 'با استارت کردن ربات تلگرام، می‌توانید یادآورها و هشدارهای مربوط به خودتان را در تلگرام دریافت کنید.',
-               type: 'telegram',
-               actionButton: 'وصل شدن به ربات تلگرام',
-               actionButtonLink: `https://t.me/test_health_alerts_bot?start=${account_id}`
-               }
-           ]
-       );
+       const promotions = handlers.get_promotions(account_id);
+       // res.send([
+       //         {
+       //             title: 'تخفیف ویژه برای تهیه‌ی دستگاه',
+       //             body: 'شما می‌توانید تا ۳ روز آینده دستگاه پایش سلامت را با تخفیف ويژه خریداری کنید.',
+       //             type: 'call',
+       //             actionButton: 'تماس با واحد فروش',
+       //             actionButtonLink: 'tel:09156289830'
+       //         }, {
+       //             title: 'بدون دردسر نوبت ویزیت تهیه کنید!',
+       //             body: 'شما می‌توانید به سرعت و به صورت آنلاین، از پزشکان ما نوبت بگیرید.',
+       //             type: 'tick',
+       //             actionButton: 'جستجو میان پزشکان',
+       //             actionButtonLink: '/user/patient/doctors'
+       //         }, {
+       //         title: 'وارد ربات تلگرامی شوید!',
+       //         body: 'با استارت کردن ربات تلگرام، می‌توانید یادآورها و هشدارهای مربوط به خودتان را در تلگرام دریافت کنید.',
+       //         type: 'telegram',
+       //         actionButton: 'وصل شدن به ربات تلگرام',
+       //         actionButtonLink: `https://t.me/test_health_alerts_bot?start=${account_id}`
+       //         }
+       //     ]
+       // );
+       res.send(promotions);
    } catch (e) {
        next(e);
    }
