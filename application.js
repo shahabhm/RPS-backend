@@ -1,27 +1,36 @@
-const PushNotifications = require("node-pushnotifications");
-const {Account, Hospital, Patient, Condition, Medicine, Allergy, PatientMedicine, Briefing, Parameter, Prescription, Doctor, Reservation, Chat, Message, Device,
-    ParameterLimit,
-    PatientDoctor
-} = require("./mongo");
-const errors = require('./errors');
-
+const errors = require('./dist/errors');
+const moment = require('moment-timezone');
 const cron = require('node-cron');
-const {generateAccessToken} = require("./jwt");
-const {PATIENT_PARAMETERS} = require("./constants");
-const telegram = require('./telegram');
+const {generateAccessToken} = require("./dist/Middlewares");
+const {PATIENT_PARAMETERS} = require("./dist/constants");
+const telegram = require('./dist/telegram');
+const {Reservation} = require("./dist/model/Reservation");
+const {Account} = require("./dist/model/Account");
+const {Patient} = require("./dist/model/Patient");
+const {Hospital} = require("./dist/model/Hospital");
+const {Doctor} = require("./dist/model/Doctor");
+const {Parameter} = require("./dist/model/Parameter");
+const {Message} = require("./dist/model/Message");
+const {PatientMedicine} = require("./dist/model/PatientMedicine");
+const {PatientDoctor} = require("./dist/model/PatientDoctor");
+const {ParameterLimit} = require("./dist/model/ParameterLimit");
+const {Briefing} = require("./dist/model/Briefing");
+const {Allergy} = require("./dist/model/Allergy");
+const {Medicine} = require("./dist/model/Medicine");
+const {Condition} = require("./dist/model/Condition");
+const {Chat} = require("./dist/model/Chat");
 
-cron.schedule('*/10 * * * * *', () => {
-    // console.log("cronjob running");
-    send_notifications();
-});
 
+// done
 const generate_token = function (account) {
     return {
-        token: generateAccessToken({account_id: account._id, role: account.role}),
-        account_id: account.account_id,
+        token: generateAccessToken(account._id, account.role),
+        account_id: account._id,
         role: account.role,
     };}
 
+// done
+// Middleware to attach account to API request
 async function get_account_by_id(req, res, next) {
     const {account_id} = req.user;
     if (account_id == null) return res.sendStatus(401)
@@ -29,16 +38,19 @@ async function get_account_by_id(req, res, next) {
     next()
 }
 
-
+// done
 const login = async function (phone_number, password) {
     const account = await Account.findOne({phone_number: phone_number, password: password});
     if (!account) {
         throw new Error('USER_NOT_FOUND');
     }
-    telegram.send_message(account.telegram_id, 'شما وارد حساب کاربری خود شدید.');
+    // telegram.send_message(account.telegram_id, 'شما وارد حساب کاربری خود شدید.').catch(err => {
+    //     console.debug('Could not send message to telegram. ', err.toString());
+    // })
     return generate_token(account);
 }
 
+// done
 const signup_mobile = async function (phone_number, password, role) {
     const existing_account = await Account.findOne({phone_number: phone_number});
     if (existing_account) {
@@ -54,6 +66,7 @@ const signup_mobile = async function (phone_number, password, role) {
     return account;
 }
 
+// done
 const confirm_otp = async function (phone_number, otp) {
     const account = await Account.findOne({phone_number: phone_number});
     if (!account) {
@@ -68,6 +81,7 @@ const confirm_otp = async function (phone_number, otp) {
     return generate_token(account);
 }
 
+// done
 const forget_password = async function(phone_number) {
     const account = await Account.findOne({phone_number: phone_number});
     // user should not find out if the number is registered or not.
@@ -77,6 +91,7 @@ const forget_password = async function(phone_number) {
     return;
 }
 
+// done
 const reset_password = async function (account_id, password) {
     const account = await Account.findOne({_id: account_id});
     if (!account) {
@@ -86,6 +101,7 @@ const reset_password = async function (account_id, password) {
     await account.save();
 }
 
+// done
 const register_new = async function (account_id, first_name, last_name, national_code, city, gender, birthdate, weight, height, blood_type) {
     const patient = new Patient({
         first_name,
@@ -189,8 +205,13 @@ const get_parameter_names = async function() {
     return PATIENT_PARAMETERS;
 }
 
+// done
 const capture_parameter = async function (device_code, parameter, value) {
     const device = await Device.findOne({code: device_code});
+    if (!device) {
+        console.error(`device not found. code: ${device_code}`);
+        return {result: "ERROR", socket_payloads: []};
+    }
     const current_time = new Date();
     const record = new Parameter({
         patient_id: device.patient_id, parameter: parameter, value: value, created_at: current_time
@@ -217,35 +238,52 @@ const capture_parameter = async function (device_code, parameter, value) {
     }
 }
 
+// done
 const send_alert = async function (patient_account, parameter, value) {
+    return;
     const patient_doctors = await PatientDoctor.find({patient_id: patient_account._id});
     const doctor_accounts = await Promise.all(patient_doctors.map(async pd => Account.findOne({doctor_id: pd.doctor_id})))
     for (let index = 0; index < doctor_accounts.length; index ++){
-        let doctor = doctor_accounts[index];
-        telegram.send_message(doctor.telegram_id, `بیمار شما، ${patient_account.name} در شرایط غیرعادی قرار دارد. \n ${parameter}: ${value}\nمشاهده‌ی پروفایل بیمار: http://localhost/${patient_account._id} `);
+        let doctor  = doctor_accounts[index];
+        if (!doctor.telegram_id) {
+            continue;
+        }
+        telegram.send_message(doctor.telegram_id, `بیمار شما، ${patient_account.name} در شرایط غیرعادی قرار دارد. \n ${parameter}: ${value}\nمشاهده‌ی پروفایل بیمار: http://localhost/${patient_account._id} `).catch((err) => {
+            console.error('Could not send warning to doctor. ', err.toString());
+        });
     }
-    telegram.send_message(patient_account.telegram_id, `هشدار: ${parameter} شما ${value} است که خارج از بازه‌ی نرمال است.`);
+    telegram.send_message(patient_account.telegram_id, `هشدار: ${parameter} شما ${value} است که خارج از بازه‌ی نرمال است.`).catch((err) => {
+        console.error('could not send warning to patient. ', err.toString());
+    })
 }
 
+// done
 const add_to_watchlist = async function (patient_id, doctor_id){
     const record = new PatientDoctor({patient_id, doctor_id});
     await record.save()
     return record;
 }
 
+// done
 const register_device = async function (account_id, device_code) {
     await Device.findOneAndUpdate({code: device_code}, {patient_id: account_id}, {upsert: true});
     return {result: "OK"};
 }
 
-const get_parameters = async function (patient_id, parameter) {
+// done
+const get_parameters = async function (patient_id, parameter, selected_time) {
+    const tenMinutesBefore = new Date(selected_time.getTime() - 10 * 60 * 1000);
+    const tenMinutesAfter = new Date(selected_time.getTime() + 10 * 60 * 1000);
     const parameters = await Parameter.find({
         patient_id: patient_id,
-        parameter: parameter
-    }).limit(30).sort({created_at: -1});
+        parameter: parameter,
+        created_at: { $gte: tenMinutesBefore, $lte: tenMinutesAfter }
+    }).sort({ created_at: 1 });
+    console.log(parameters);
     return parameters;
 }
 
+// done
 const get_parameter_statistics = async function (patient_id, parameter) {
     const currentDate = new Date();
     const oneMonthAgo = new Date(currentDate.setMonth(currentDate.getMonth() - 1));
@@ -299,43 +337,214 @@ const get_parameter_statistics = async function (patient_id, parameter) {
 }
 
 const get_promotions = async function (account_id) {
-    const account = await Account.findOne({ _id: account_id }).populate('patient_id').populate('doctor_id');
-    const promotions = [];
-    const devices = await Device.find({patient_id: account.patient_id._id});
-    if (devices.length === 0) {
-        promotions.push({
-            title: 'تخفیف ویژه برای تهیه‌ی دستگاه',
-            body: 'شما می‌توانید تا ۳ روز آینده دستگاه پایش سلامت را با تخفیف ويژه خریداری کنید.',
-            type: 'call',
-            actionButton: 'تماس با واحد فروش',
-            actionButtonLink: 'tel:09156289830'
-        });
-    }
-
-    const reservations = await Reservation.find({ patient_id: account.patient_id._id });
-    if (account.patient_id && reservations.length === 0) {
-        promotions.push({
-            title: 'بدون دردسر نوبت ویزیت تهیه کنید!',
-            body: 'شما می‌توانید به سرعت و به صورت آنلاین، از پزشکان ما نوبت بگیرید.',
-            type: 'tick',
-            actionButton: 'جستجو میان پزشکان',
-            actionButtonLink: '/user/patient/doctors'
-        });
-    }
-
-    if (!account.telegram_id) {
-        promotions.push({
-            title: 'وارد ربات تلگرامی شوید!',
-            body: 'با استارت کردن ربات تلگرام، می‌توانید یادآورها و هشدارهای مربوط به خودتان را در تلگرام دریافت کنید.',
-            type: 'telegram',
-            actionButton: 'وصل شدن به ربات تلگرام',
-            actionButtonLink: `https://t.me/test_health_alerts_bot?start=${account_id}`
-        });
-    }
-
-    return promotions;
+    // const account = await Account.findOne({ _id: account_id }).populate('patient_id').populate('doctor_id');
+    // const promotions = [];
+    // const devices = await Device.find({patient_id: account.patient_id._id});
+    // if (devices.length === 0) {
+    //     promotions.push({
+    //         title: 'تخفیف ویژه برای تهیه‌ی دستگاه',
+    //         body: 'شما می‌توانید تا ۳ روز آینده دستگاه پایش سلامت را با تخفیف ويژه خریداری کنید.',
+    //         type: 'call',
+    //         actionButton: 'تماس با واحد فروش',
+    //         actionButtonLink: 'tel:09156289830'
+    //     });
+    // }
+    //
+    // const reservations = await Reservation.find({ patient_id: account.patient_id._id });
+    // if (account.patient_id && reservations.length === 0) {
+    //     promotions.push({
+    //         title: 'بدون دردسر نوبت ویزیت تهیه کنید!',
+    //         body: 'شما می‌توانید به سرعت و به صورت آنلاین، از پزشکان ما نوبت بگیرید.',
+    //         type: 'tick',
+    //         actionButton: 'جستجو میان پزشکان',
+    //         actionButtonLink: '/user/patient/doctors'
+    //     });
+    // }
+    //
+    // if (!account.telegram_id) {
+    //     promotions.push({
+    //         title: 'وارد ربات تلگرامی شوید!',
+    //         body: 'با استارت کردن ربات تلگرام، می‌توانید یادآورها و هشدارهای مربوط به خودتان را در تلگرام دریافت کنید.',
+    //         type: 'telegram',
+    //         actionButton: 'وصل شدن به ربات تلگرام',
+    //         actionButtonLink: `https://t.me/test_health_alerts_bot?start=${account_id}`
+    //     });
+    // }
+    //
+    // return promotions;
 }
 
+// This API will return an overview of all the parameters of the patient.
+// it returns the latest value of each parameter, the hourly min and max of each parameter in the last 24 hours,
+// and the list of all parameters that the patient has. (because a patient might not have had any data entry in the past
+// 24 hrs, but we still want to show that parameter in the list)
+const get_patient_parameters_overview = async function (patient_id) {
+    const currentDate = moment().tz('Asia/Tehran').toDate();
+    const oneDayAgo = new Date(currentDate.getTime() - 24 * 60 * 60 * 1000);
+
+    const results = await Parameter.aggregate([
+        {
+            $match: {
+                patient_id: patient_id,
+            }
+        },
+        {
+            $facet: {
+                // last value of each parameter
+                parametersMostRecentValue: [
+                    { $match: { created_at: { $gte: oneDayAgo } } },
+                    { $sort: { created_at: -1 } },
+                    {
+                        $group: {
+                            _id: "$parameter",
+                            value: { $first: "$value" },
+                            createdAt: { $first: "$created_at" }
+                        }
+                    },
+                    {
+                        $project: {
+                            parameter: "$_id",
+                            value: 1,
+                            createdAt: 1,
+                            _id: 0
+                        }
+                    }
+                ],
+                // highest and lowest value of each parameter for each hour of today
+                todayParametersHourlyExtremes: [
+                    {
+                        $match: { created_at: { $gte: oneDayAgo } }
+                    },
+                    {
+                        $sort: {
+                            "_id.parameter": 1,
+                            "_id.year": 1,
+                            "_id.month": 1,
+                            "_id.day": 1,
+                            "_id.hour": 1
+                        }
+                    },
+                    {
+                        $group: {
+                            _id: {
+                                parameter: "$parameter",
+                                year: { $year: "$created_at" },
+                                month: { $month: "$created_at" },
+                                day: { $dayOfMonth: "$created_at" },
+                                hour: { $hour: "$created_at" }
+                            },
+                            minValue: { $min: "$value" },
+                            maxValue: { $max: "$value" }
+                        }
+                    },
+                    {
+                        $project: {
+                            _id: 0,
+                            parameter: "$_id.parameter",
+                            year: "$_id.year",
+                            month: "$_id.month",
+                            day: "$_id.day",
+                            hour: "$_id.hour",
+                            minValue: 1,
+                            maxValue: 1
+                        }
+                    }
+                ],
+                // list of all available parameters for the patient
+                allAvailableParameters: [
+                    {
+                        $match: {
+                            patient_id: patient_id
+                        },
+                    }, {
+                        $group: {
+                            _id: "$parameter",
+                        }
+                    }
+                ]
+            }
+        }
+    ]);
+
+    let parametersMostRecentValue = results[0].parametersMostRecentValue;
+    const todayParametersHourlyExtremes = results[0].todayParametersHourlyExtremes;
+    const allAvailableParameters = results[0].allAvailableParameters;
+
+    const allData = allAvailableParameters.map(parameter => {
+        const parameterInfo = PATIENT_PARAMETERS.find(p => p.name === parameter._id);
+        return {
+            parameter: parameter._id,
+            parameterName: parameterInfo.persian_name,
+            unit: parameterInfo ? parameterInfo.unit : ''
+        };
+    });
+
+    // attach the most recent value to the parameter in allData
+    allData.forEach(parameter => {
+        const mostRecentValue = parametersMostRecentValue.find(p => p.parameter === parameter.parameter);
+        if (mostRecentValue) {
+            parameter.latestValue = mostRecentValue;
+        }
+    })
+
+    const parametersMinimumAndMaximum = {};
+    todayParametersHourlyExtremes.forEach((extreme) => {
+        if (!parametersMinimumAndMaximum[extreme.parameter]) {
+            parametersMinimumAndMaximum[extreme.parameter] = [];
+        }
+        parametersMinimumAndMaximum[extreme.parameter].push(extreme);
+    });
+
+    const past24Hours = []
+    for (let i = 0; i < 24; i++) {
+        const tempTime = currentDate - i * 60 * 60 * 1000;
+        const tempDate = new Date(tempTime);
+        past24Hours.push({
+            year: tempDate.getFullYear(),
+            month: tempDate.getMonth() + 1,
+            day: tempDate.getDate(),
+            hour: tempDate.getHours(),
+        });
+    }
+
+    const parametersMinAndMaxWithEmptyHours = {}
+
+    // check past24Hours. If the hour was in the data, use that data. else, add an hour with no minimum and maximum value
+    for (const parameter in parametersMinimumAndMaximum) {
+        newParameterValues = []
+        parameterValues = parametersMinimumAndMaximum[parameter];
+        past24Hours.forEach(hour => {
+            const existingParameter = parameterValues.filter(p => p.hour === hour.hour);
+            if (existingParameter.length === 0) {
+                newParameterValues.push({
+                    parameter: parameter,
+                    year: hour.year,
+                    month: hour.month,
+                    day: hour.day,
+                    hour: hour.hour,
+                    minValue: null,
+                    maxValue: null
+                });
+            } else {
+                newParameterValues.push(existingParameter[0]);
+            }
+        });
+        parametersMinAndMaxWithEmptyHours[parameter] = newParameterValues;
+    }
+
+    allData.forEach(parameter => {
+        if (parametersMinAndMaxWithEmptyHours[parameter.parameter]) {
+            parameter.maxAndMin = parametersMinAndMaxWithEmptyHours[parameter.parameter];
+        }
+    });
+
+    // sort allData based on parameter
+    allData.sort((a, b) => a.parameter.localeCompare(b.parameter));
+
+    return allData;
+}
+
+// rewritten
 const add_prescription = async function (patient_id, doctor_id, medicines, note){
     const prescription = new Prescription({patient_id, doctor_id, medicines, note});
     await prescription.save();
@@ -354,18 +563,10 @@ const add_patient_medicine = async function (patient_id, medicineName, dosage, a
     }
 }
 
+// done
 const get_hospitals = async function (city, latitude, longitude) {
     const hospitals = await Hospital.find();
     return hospitals;
-}
-
-const get_patient_medicines = async function (patient_id) {
-    const medicines = await PatientMedicine.find({
-        where: {
-            patient_id: patient_id
-        }
-    });
-    return medicines;
 }
 
 const edit_patient_medicine = async function (medicine_id, medicine, dosage, amount, unit, repeat, hours, with_food, notes) {
@@ -382,6 +583,7 @@ const edit_patient_medicine = async function (medicine_id, medicine, dosage, amo
     return {result: "OK"};
 }
 
+// done
 const get_doctors = async function (city, name, specialization) {
     const filter = {};
     if (city) filter.city = city;
@@ -399,6 +601,7 @@ const get_doctor_introduction = async function (doctor_id) {
     return doctor;
 }
 
+// done
 const register_doctor = async function (account_id, firstName, lastName, nationalCode, nezamCode, specialization, province, city, schedule) {
     const doctor = new Doctor({
         first_name: firstName,
@@ -430,6 +633,7 @@ const set_doctor_schedule = async function (account_id, schedule) {
     });
 }
 
+// rewrittein in ts
 const get_available_times = async function (doctor_id, date) {
     const doctor = await Doctor.findById(doctor_id);
     const active_doctor_reservations = await Reservation.find({doctor_id: doctor_id, date: date});
@@ -448,7 +652,7 @@ const get_available_times = async function (doctor_id, date) {
     }
     return available_times;
 }
-
+// rewritten
 const reserve_time = async function (patient_account_id, doctor_id, date, time_slot) {
     const doctor = await Doctor.findById(doctor_id);
     const account = await Account.findOne({_id: patient_account_id});
@@ -492,6 +696,7 @@ const get_reservations = async function (account_id, only_active) {
     return reservations;
 }
 
+// done
 const create_chat = async function (account_id1, account_id2) {
     // account_id2 could be patient_id or doctor_id
     if (!account_id2) throw new Error(errors.USER_NOT_FOUND.error_code);
@@ -570,6 +775,7 @@ const get_chat_list = async function (account_id, unread) {
     return chatListWithDetails;
 }
 
+// done
 // TODO: this is really ugly. must clean this thing and move socket to a better place.
 const send_message = async function (sender_id, chat_id, text, image_name) {
     if (!image_name && ! text) {
@@ -581,6 +787,7 @@ const send_message = async function (sender_id, chat_id, text, image_name) {
     return {message, chat};
 }
 
+// done
 const get_messages = async function (chat_id, account_id) {
     await Message.updateMany(
         { chat: chat_id, sender: { $ne: account_id }, seen: false },
@@ -590,6 +797,7 @@ const get_messages = async function (chat_id, account_id) {
     return messages;
 }
 
+// done
 const seen_message = async function (user_id, message_id) {
     await Message.updateOne({ _id: message_id }, { seen: true });
     return 'ok';
@@ -622,10 +830,9 @@ const get_latest_parameters = async function (patient_id) {
 
     return latestParameters.map(param => {
         const parameterInfo = PATIENT_PARAMETERS.find(p => p.name === param.parameter);
-        const unit = parameterInfo ? parameterInfo.unit : '';
         return {
             ...param,
-            unit: unit
+            ...parameterInfo
         };
     });
 }
@@ -634,6 +841,36 @@ const get_doctor_meetings = async function (doctor_id) {
     const reservations = await Reservation.find({ doctor_id: doctor_id })
         .populate('patient_id', 'first_name last_name national_code city gender birthdate weight height blood_type condition_description condition_history family_history allergies medicines profile_picture');
     return reservations;
+}
+
+const get_meeting = async function(meeting_id) {
+
+    const meeting = (await Reservation.findOne({_id: meeting_id})).toJSON();
+    const patient_account = await Account.findOne({patient_id: meeting.patient_id});
+    meeting.status_text = 'ثبت شده';
+    meeting.length = 12;
+    meeting.patient = {
+        name: patient_account.name
+    };
+    return meeting;
+}
+
+const get_doctor_patients = async function (account_id, page, limit, urgent) {
+    const doctor = await Account.findOne({ _id: account_id }).populate('doctor_id');
+    const patient_doctors = await PatientDoctor.find({ doctor_id: doctor.doctor_id });
+    const patient_ids = patient_doctors.map(pd => pd.patient_id);
+    const patients = await Patient.find({ _id: { $in: patient_ids } }).skip((page - 1) * limit).limit(limit).
+        select('first_name last_name _id');
+    return patients;
+}
+
+const get_patient_info = async function (patient_id) {
+    const patient = await Patient.findOne({_id: patient_id}).populate('condition_history');
+    const condition_history = await Condition.find({ name: { $in: patient.condition_history } });
+    const family_history = await Condition.find({ name: { $in: patient.family_history } });
+    const medicines = await Medicine.find({ name: { $in: patient.medicines } });
+    const allergies = await Allergy.find({ name: { $in: patient.allergies } });
+    return { ...patient.toObject(), condition_history, family_history, medicines, allergies };
 }
 
 const get_doctor = async function (doctor_id){
@@ -648,6 +885,7 @@ const get_hospital_info = async function (hospital_id){
     return hospital;
 }
 
+// done
 const connect_telegram = async function(account_id, telegram_id) {
     // called when a user starts the telegram bot. it will link their telegram id to their account.
     // TODO: use some sort of token instead of account id for this function.
@@ -699,9 +937,13 @@ module.exports = {
     get_latest_parameters,
     get_account_by_id,
     get_doctor_meetings,
+    get_meeting,
     get_doctor,
     connect_telegram,
     add_to_watchlist,
     get_hospital_info,
     get_promotions,
+    get_doctor_patients,
+    get_patient_info,
+    get_patient_parameters_overview,
 }

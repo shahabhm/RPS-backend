@@ -1,6 +1,5 @@
 const express = require('express')
 const { createServer } = require("http");
-const { Server } = require("socket.io");
 const mqtt = require('mqtt');
 const { query, body, validationResult } = require('express-validator');
 const bodyParser = require('body-parser')
@@ -9,83 +8,31 @@ const multer = require("multer");
 // const upload = multer({ dest: "uploads/" });
 const app = express()
 const port = 3000
-const { application } = require("express");
 const handlers = require('./application');
-const {authenticateToken } = require('./jwt');
-const errors = require('./errors');
+const {authenticateToken } = require('./dist/Middlewares');
+const errors = require('./dist/errors');
 const winston = require('winston');
-const { validate } = require("node-cron");
-const constants = require('./constants');
-const jwt = require("jsonwebtoken");
+const constants = require('./dist/constants');
 const {get_account_by_id, capture_parameter} = require("./application");
-
-
+const mongo = require('./dist/mongo');
+const { initializeSocket, sendNotification } = require('./dist/socket');
+// require('./MockDataCronjob');
 const logger = winston.createLogger({
-    level: 'info', format: winston.format.json(), transports: [new winston.transports.Console()],
+    level: 'debug', format: winston.format.json(), transports: [new winston.transports.Console()],
 });
+const ts_handlers = require('./dist/ts_handlers');
 
 logger.info('Hello From Winston logger!');
-
 logger.info(`server is running in ${process.env.NODE_ENV} environment.`);
 
-app.use(bodyParser.urlencoded({ extended: true }))
-
-app.use(bodyParser.json())
-
-app.use(cors())
+app.use(bodyParser.urlencoded({ extended: true }));
+app.use(bodyParser.json());
+app.use(cors());
 
 const httpServer = createServer(app);
-
-const usersSocketConnections = new Map();
-
-const io = new Server(httpServer, {
-    path: '/api/socket.io',
-    // TODO: socket
-    // cors: {
-    //     origin: 'http://localhost:3001',
-    //     methods: ['GET', 'POST']
-    // }
-});
-
-io.use((socket, next) => {
-    const token = socket.handshake.auth.token;
-    if (!token) {
-        return next(new Error("Authentication error"));
-    }
-
-    jwt.verify(token, '12345', (err, decoded) => {
-        if (err) {
-            return next(new Error("Authentication error"));
-        }
-        socket.account_id = decoded.account_id;
-        next();
-    });
-});
-
-io.on('connection', (socket) => {
-    // Add user to the connected users map
-    usersSocketConnections.set(socket.account_id, socket.id);
-    console.log(`User ${socket.account_id} connected with socket ID ${socket.id}`);
-
-    // Listen for `sendMessageToUser` events for targeted messages
-    socket.on('sendMessageToUser', ({ targetUserId, message }) => {
-        const targetSocketId = usersSocketConnections.get(targetUserId);
-        if (targetSocketId) {
-            io.to(targetSocketId).emit('receiveMessage', message);
-        } else {
-            console.log(`User ${targetUserId} is not connected`);
-        }
-    });
-
-    // Clean up when a user disconnects
-    socket.on('disconnect', () => {
-        console.log(`User ${socket.account_id} disconnected`);
-        usersSocketConnections.delete(socket.account_id);
-    });
-});
+initializeSocket(httpServer);
 
 httpServer.listen(port);
-
 
 // Connect to the RabbitMQ server using the MQTT plugin
 const mqttClient = mqtt.connect(process.env.RABBIT_URI, {username: process.env.RABBIT_USER, password: process.env.RABBIT_PASSWORD});
@@ -95,7 +42,7 @@ mqttClient.on('connect', () => {
     console.log('Connected to RabbitMQ MQTT');
     mqttClient.subscribe('testing', (err) => {
         if (!err) {
-            console.log('Subscribed to topic');
+            logger.info('Subscribed to topic');
         } else {
             console.error('Subscription error:', err);
         }
@@ -104,15 +51,16 @@ mqttClient.on('connect', () => {
 
 // Handle incoming messages
 mqttClient.on('message', async (topic, message) => {
+    // the incoming message could be in plaintext format
+    logger.info(`Received message on topic ${topic}: ${message.toString()}`);
     console.log(`Received message on topic ${topic}: ${message.toString()}`);
     try {
-        const convertedMessage = JSON.parse(message.toString());
-        console.log(convertedMessage);
-        const {device_id, parameter, value} = convertedMessage;
+        const message_parts = message.toString().split(',');
+        const [device_id, parameter, value] = message_parts;
         const {socket_payloads} = await handlers.capture_parameter(device_id, parameter, value);
+        if (!socket_payloads) return;
         socket_payloads.forEach(socket_payload => {
-            console.log(usersSocketConnections.get(socket_payload.account_id.toString()), socket_payload)
-            io.to(usersSocketConnections.get(socket_payload.account_id.toString())).emit('receiveParameter', socket_payload);
+            sendNotification(socket_payload.account_id.toString(), 'receiveParameter', socket_payload);
         })
     } catch (e) {
         console.error(e);
@@ -138,16 +86,10 @@ app.post('/api/v1/upload', upload.single('image'), (req, res) => {
     }
 });
 
-app.post("/subscribe", authenticateToken, async (req, res) => {
-    console.log(req.body);
-    const subscription = req.body;
-    await handlers.subscribe_push(req.user.account_id, subscription);
-    res.send({ result: "OK" });
+app.get('/api/server/test',  async (req, res) => {
+    const skibidi = await ts_handlers.getChatList('672b2683e6f0fe57beedbd1a', false);
+    res.send(skibidi)
 });
-
-app.get('/api/server/test', (req, res) => {
-    res.send('Hello World!')
-})
 
 app.get('/api/v1/uploads/:file', async (req, res) => {
     const { file } = req.params;
@@ -497,9 +439,9 @@ app.get('/api/v1/patient/get_parameters',
         query('parameter').notEmpty(),
     validate_api,
     async (req, res, next) => {
-        const {parameter, patient_id} = req.query;
+        const {parameter, patient_id, selected_time} = req.query;
         try {
-            const response = await handlers.get_parameters(patient_id, parameter);
+                const response = await handlers.get_parameters(patient_id, parameter, new Date(selected_time));
             res.send(response);
         } catch (e) {
             next(e);
@@ -549,6 +491,19 @@ app.get('/api/v1/patient/last_parameters',
         }
     }
     );
+
+app.get('/api/v1/patient/parameters_overview',
+    authenticateToken,
+    handlers.get_account_by_id,
+    async (req, res, next) => {
+        try {
+            const patient_id = req.account.role === "patient"? req.account.patient_id.toString() : req.query.patient_id;
+            const response = await handlers.get_patient_parameters_overview(patient_id);
+            res.send(response);
+        } catch (e) {
+            next(e);
+        }
+    });
 
 app.post('/api/v1/patient/medicine/add',
     body('medicineName').isString(),
@@ -711,26 +666,25 @@ app.get('/api/v1/patient/notifications',
 
 // v1/doctor/patients
 app.get('/api/v1/doctor/patients',
-    // authenticateToken,
+    authenticateToken,
     async (req, res) => {
         const { page, limit, urgent } = req.query;
-        // const {doctor_id} = req.user.account_id;
+        const {account_id} = req.user;
         console.log(page, limit, urgent);
-        res.send([
-            {
-                name: 'شهاب مقدم',
-                place: 'در بیمارستان',
-                status_text: 'وضعیت پایدار',
-                status_code: 'stable',
-                image: '/sina.png',
-                profile_link: '/user/doctor/pid',
-                profile_picture: 'sina.png',
-            }
-        ]);
+        const patients = await handlers.get_doctor_patients(account_id, page, limit, urgent);
+        res.send(patients);
     }
 );
 
-let shitCounter = 0;
+// v1/doctor/get_patient
+app.get('/api/v1/doctor/get_patient',
+    authenticateToken,
+    async (req, res) => {
+        const { patient_id } = req.query;
+        const patient = await handlers.get_patient_info(patient_id);
+        res.send(patient);
+    }
+);
 
 // v1/doctor/meetings
 app.get('/api/v1/doctor/meetings',
@@ -742,6 +696,17 @@ app.get('/api/v1/doctor/meetings',
         const response = await handlers.get_doctor_meetings(req.account.doctor_id.toString());
         res.send({items: response});
     });
+
+// v1/doctor/meeting
+app.get('/api/v1/doctor/meeting', authenticateToken, async (req, res, next) => {
+    try{
+        const {meeting_id} = req.query;
+        const response = await handlers.get_meeting(meeting_id);
+        res.send(response);
+    } catch (e) {
+        next(e);
+    }
+});
 
 // v1/doctor/info
 app.get('/api/v1/doctor/info',

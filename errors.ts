@@ -1,4 +1,10 @@
-const errors = {
+interface Error {
+    error_code: string;
+    error_string: string;
+    status_code: number;
+}
+
+export const errors: { [key: string]: Error } = {
     EMPTY_PASSWORD: {
         error_code: 'EMPTY_PASSWORD',
         error_string: 'رمز عبور خالی است.',
@@ -35,5 +41,3 @@ const errors = {
         status_code: 400
     }
 };
-
-module.exports = errors;

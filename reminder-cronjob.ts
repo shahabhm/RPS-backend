@@ -5,4 +5,3 @@ const job = cron.schedule('* * * * *', () => {
 });
 
 job.start();
-
