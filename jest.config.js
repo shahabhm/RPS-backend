@@ -1,0 +1,3 @@
+{
+    testTimeout: 100000
+}
