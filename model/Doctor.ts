@@ -16,15 +16,15 @@ interface ISchedule {
 interface IDoctor extends Document {
     first_name: string;
     last_name: string;
-    national_code: string;
-    city: string;
-    schedule: ISchedule[];
-    address: IAddress;
-    specialization: string;
-    profile_picture: string;
-    session_time: number;
-    description: string;
-    patients: IPatient[];
+    national_code: string; // NID of the doctor, used for verification stuff
+    city: string; // in what city does the doctor work? TODO: make this a list, some doctors work in multiple places
+    schedule: ISchedule[]; // what days does the doctor accept online sessions through the app
+    address?: IAddress; // where does the doctor work? TODO: make this a list
+    specialization: string; // e.g. cardiologist
+    profile_picture?: string; // profile picture file name
+    session_time: number; // how long does each session of the doctor take? (in minutes) e.g. 20
+    description?: string; // some short biography or anything notable about the doctor
+    patients: IPatient[]; // what patients does the doctor currently observe?
 
     getTimeTable(date: Date): Date[];
 }
@@ -63,16 +63,17 @@ const DoctorSchema = new Schema<IDoctor>({
     national_code: {type: String, required: true},
     city: {type: String, required: true},
     schedule: {type: [ScheduleSchema], required: true},
-    address: {type: AddressSchema, required: true},
+    address: {type: AddressSchema, required: false},
     specialization: {type: String, required: true},
-    profile_picture: {type: String, required: true},
+    profile_picture: {type: String, required: false},
     session_time: {type: Number, required: true},
-    description: {type: String, required: true},
+    description: {type: String, required: false},
     patients: {type: [PatientSchema], required: true},
 });
 
 // for a given date, find the timeslots available for reservation for the doctor in that date
 DoctorSchema.methods.getTimeTable = function (date: Date): Date[] {
+    // get name of the week day of date object
     const day = date.toLocaleString('en-US', {weekday: 'long'});
     const schedule = this.schedule.find(s => s.day_of_week === day);
     if (!schedule) return [];
