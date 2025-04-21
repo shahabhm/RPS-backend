@@ -1,4 +1,4 @@
-import { Schema, model, Document, Model } from 'mongoose';
+import {Document, model, Model, Schema} from 'mongoose';
 
 interface IMessage extends Document {
     sender: Schema.Types.ObjectId;
@@ -13,6 +13,7 @@ interface IMessageModel extends Model<IMessage> {
     createMessage(sender_id: string, chat_id: string, text: string, image_name: string): Promise<IMessage>;
     getMessages(chat_id: string, account_id: string): Promise<IMessage[]>;
     seenMessage(message_id: string): Promise<string>;
+    deleteMessage(messageId: string): Promise<IMessage>;
 }
 
 const messageSchema = new Schema<IMessage>({
@@ -50,6 +51,14 @@ messageSchema.statics.getMessages = async function (chat_id: string, account_id:
 messageSchema.statics.seenMessage = async function (message_id: string): Promise<string> {
     await this.updateOne({ _id: message_id }, { seen: true });
     return 'ok';
+}
+
+messageSchema.statics.deleteMessage = async function (messageId: string): Promise<IMessage> {
+    const message = await Message.findByIdAndDelete(messageId);
+    if (!message) {
+        throw new Error('MESSAGE_NOT_FOUND');
+    }
+    return message;
 }
 
 const Message = model<IMessage, IMessageModel>('Message', messageSchema);
