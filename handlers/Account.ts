@@ -1,4 +1,4 @@
-import {Router, Request, Response, NextFunction} from 'express';
+import {NextFunction, Request, Response, Router} from 'express';
 import {body} from "express-validator";
 import {authenticateToken, ICustomRequest, IRequestUser, validateAPI} from "../Middlewares";
 import {confirmOTP, forgotPassword, login, resetPassword, signup} from "../ts_handlers";
@@ -14,8 +14,18 @@ router.post('/api/v1/user/login',
         try {
             console.log(`POST /api/v1/user/login, req.body: ${JSON.stringify(req.body)}`);
             const { phoneNumber, password } = req.body;
-            const response = await login(phoneNumber, password);
-            res.send(response);
+            const userInfo = await login(phoneNumber, password);
+            res.cookie('jwt', userInfo.token, {
+                httpOnly: true, // JavaScript can't access this cookie
+                secure: process.env.NODE_ENV === 'production', // Use secure cookies in production. testing env does not have https
+                sameSite: 'strict',
+            });
+            res.cookie('user', userInfo.token.toString().split('.')[1].toString(),
+                {
+                    httpOnly: false, // Javascript needs the content of this token
+                    sameSite: 'strict',
+                });
+            res.send(userInfo);
         } catch (e) {
             next(e);
         }
