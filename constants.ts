@@ -35,10 +35,10 @@ const MEETING_TYPES: { [key: string]: ISimpleName } = {
 };
 
 const MEETING_STATUS: { [key: string]: ISimpleName } = {
-    BOOKED: { name: 'booked', persian_name: 'ویزیت ثبت شده' },
-    IN_PROGRESS: { name: 'in progress', persian_name: 'در حال ویزیت' },
-    FINISHED: { name: 'finished', persian_name: 'تمام شده' },
-    CANCELLED: { name: 'cancelled', persian_name: 'لغو شده' },
+    BOOKED: { name: 'BOOKED', persian_name: 'ویزیت ثبت شده' },
+    IN_PROGRESS: { name: 'IN_PROGRESS', persian_name: 'در حال ویزیت' },
+    FINISHED: { name: 'FINISHED', persian_name: 'تمام شده' },
+    CANCELLED: { name: 'CANCELLED', persian_name: 'لغو شده' },
 };
 
 const DOCTORS_SPECIALIZATION: ISimpleName[] = [

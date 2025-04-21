@@ -1,4 +1,4 @@
-import { Server, Socket } from "socket.io";
+import {Server, Socket} from "socket.io";
 import jwt from "jsonwebtoken";
 
 const usersSocketConnections = new Map<string, string>();
@@ -51,7 +51,7 @@ const initializeSocket = (httpServer: any) => {
     });
 };
 
-const sendNotification = (account_id: string, channel: string, message: string) => {
+const sendPush = (account_id: string, channel: string, message: object) => {
     const socketId = usersSocketConnections.get(account_id);
     if (socketId) {
         io.to(socketId).emit(channel, message);
@@ -60,4 +60,4 @@ const sendNotification = (account_id: string, channel: string, message: string) 
     }
 };
 
-export { initializeSocket, sendNotification };
+export { initializeSocket, sendPush };

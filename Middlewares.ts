@@ -1,5 +1,5 @@
 import jwt from 'jsonwebtoken';
-import {Request, Response, NextFunction} from 'express';
+import {NextFunction, Request, Response} from 'express';
 import {validationResult} from "express-validator";
 import {errors} from "./errors";
 
@@ -19,7 +19,7 @@ export interface ICustomRequest extends Request {
 // generates the jwt token with account_id and role
 export function generateAccessToken(payload: IRequestUser): IRequestUser {
     return {
-        token: jwt.sign(payload, process.env.JWT_SECRET as string, {expiresIn: '3h'}),
+        token: jwt.sign(payload, process.env.JWT_SECRET as string, {expiresIn: '24h'}),
         account_id: payload.account_id,
         role: payload.role,
         doctor_id: payload.doctor_id,

@@ -1,4 +1,4 @@
-import {Schema, model, Document, Model} from 'mongoose';
+import {Document, model, Model, Schema} from 'mongoose';
 import {Message} from "./Message";
 
 interface IChat extends Document {
@@ -29,43 +29,6 @@ chatSchema.statics.createChat = async function (account_ids: string[]) {
     await newChat.save();
     return newChat;
 };
-
-// const get_chat_list = async function (account_id, unread) {
-//     const chats = await Chat.find({
-//         $or: [
-//             { user1: account_id },
-//             { user2: account_id }
-//         ]
-//     }).populate('user1', 'name').populate('user2', 'name');
-//
-//     const chatListWithDetails = await Promise.all(chats.map(async (chat) => {
-//         const otherUser = chat.user1._id.equals(account_id) ? chat.user2 : chat.user1;
-//         const unread = await Message.countDocuments({
-//             chat: chat._id,
-//             sender: { $ne: account_id },
-//             seen: false
-//         });
-//         const lastMessage = await Message.findOne({ chat: chat._id }).sort('-createdAt');
-//         return {
-//             ...chat.toObject(),
-//             unread,
-//             user: {
-//                 profile_picture: 'sina.png',
-//                 name: otherUser.name,
-//             },
-//             last_message: {
-//                 preview: lastMessage?.text ? truncateString(lastMessage.text, 40) : lastMessage?.image_name? 'تصویر' : 'پیامی وجود ندارد.',
-//                 time: lastMessage?.createdAt ? lastMessage.createdAt : null
-//             }
-//         };
-//     }));
-//     const sortedChatList = chatListWithDetails.sort((a, b) => {
-//         return new Date(b.last_message.time) - new Date(a.last_message.time);
-//     });
-//
-//     if (unread) return chatListWithDetails.filter(chat => chat.unread > 0);
-//     return chatListWithDetails;
-// }
 
 chatSchema.statics.getUserChats = async function (account_id: string, unread: boolean) {
     const chats = await Chat.find({
