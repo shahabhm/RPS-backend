@@ -45,6 +45,16 @@ export function authenticateToken(req: ICustomRequest, res: Response, next: Next
     });
 }
 
+export function validateRole(roles: string[]) {
+    return (req: ICustomRequest, res: Response, next: NextFunction): void =>{
+        if (req.user && roles.includes(req.user.role)) {
+            next();
+        } else {
+            res.status(403).send({error: 'Forbidden'});
+        }
+    };
+}
+
 export const validateAPI = (req: Request, res: Response, next: NextFunction): void => {
     const apiValidationResult = validationResult(req);
     if (!apiValidationResult.isEmpty()) {
