@@ -1,19 +1,22 @@
-import {Reservation} from "./model/Reservation";
+import {IReservation, Reservation} from "./model/Reservation";
 import {Doctor, IDoctor} from "./model/Doctor";
 import {Account, IAccount} from "./model/Account";
 import {sendSMS} from "./sms";
 import {IPatient, Patient} from "./model/Patient";
 import {IMessage, Message} from "./model/Message";
 import {Chat, IChat} from "./model/Chat";
-import {sendNotification} from "./socket";
+import {sendPush} from "./socket";
 import {Parameter} from "./model/Parameter";
 import {Device, IDevice} from "./model/Device";
-import {PatientDoctor} from "./model/PatientDoctor";
+import {Observation} from "./model/Observation";
 import {ParameterLimit} from "./model/ParameterLimit";
+import {Notification} from "./model/Notification";
 import {Telegram} from "./Telegram";
 import {generateAccessToken, IRequestUser} from "./Middlewares";
 import './mongo';
 import {errors} from "./errors";
+import {PATIENT_PARAMETERS} from "./constants";
+import {Prescription} from "./model/Prescription";
 
 export const test = async function () {
 //     test cancel reservation
@@ -21,12 +24,15 @@ export const test = async function () {
     reservation.cancel('test');
 }
 
+// returns the user info and jwt token of the user
 export const login = async function (phone_number: string, password: string): Promise<IRequestUser> {
     const account = await Account.findOne({phone_number: phone_number, password: password});
     if (!account) {
         throw new Error(errors.USER_NOT_FOUND.error_code);
     }
-    Telegram.sendMessage(account.telegram_id, 'شما وارد حساب کاربری خود شدید.');
+    if (process.env.NODE_ENV === 'PRODUCTION') {
+        Telegram.sendMessage(account.telegram_id, 'شما وارد حساب کاربری خود شدید.');
+    }
     return generateAccessToken({
         account_id: account._id.toString(),
         role: account.role,
@@ -85,6 +91,53 @@ export const registerPatient = async function (
     return patient;
 }
 
+export const getPatientInfo = async function (patientAccountId: string): Promise<IPatient> {
+    const patientAccount = await Account.findById(patientAccountId);
+    if (!patientAccount) {
+        throw new Error(errors.USER_NOT_FOUND.error_code);
+    }
+    return patientAccount.getPatient();
+}
+
+
+//
+
+export const getLastParameters = async function (patientId: string) {
+    const latestParameters = await Parameter.aggregate([
+        {
+            $match: {patient_id: patientId}
+        },
+        {
+            $sort: {created_at: -1}
+        },
+        {
+            $group: {
+                _id: "$parameter",
+                latestValue: {$first: "$value"},
+                createdAt: {$first: "$created_at"}
+            }
+        },
+        {
+            $project: {
+                parameter: "$_id",
+                latestValue: 1,
+                createdAt: 1,
+                _id: 0
+            }
+        }
+    ]);
+
+    return latestParameters.map(param => {
+        const parameterInfo = PATIENT_PARAMETERS.find(p => p.name === param.parameter);
+        return {
+            ...param,
+            ...parameterInfo
+        };
+    });
+
+}
+
+
 export const registerDoctor = async function (
     account_id: string, firstName: string, lastName: string, nationalCode: string, nezamCode: string, specialization: string, province: string, city: string, schedule: {
         day_of_week: string,
@@ -98,17 +151,48 @@ export const registerDoctor = async function (
     return doctor;
 }
 
+export const getDoctors = async function (city: string, name: string, specialization: string): Promise<IDoctor[]> {
+    return Doctor.searchDoctors(city, name, specialization);
+}
+
+export const getDoctorIntroduction = async function (doctor_id: string): Promise<IDoctor> {
+    const doctor = await Doctor.findById(doctor_id);
+    if (!doctor) {
+        throw new Error(errors.USER_NOT_FOUND.error_code);
+    }
+    const doctorAccount = await Account.findOne({doctor: doctor._id});
+    return {
+        ...doctor.toObject(),
+        accountId: doctorAccount._id
+    };
+}
+
+export const getDoctorPatients = async function (doctorId: string): Promise<IPatient[]> {
+    const patients = await Observation.findDoctorPatients(doctorId);
+    return patients;
+}
+
+export const getPatientDoctors = async function (patient_id: string): Promise<IDoctor[]> {
+    const patientAccount = await Account.findOne({patient: patient_id});
+    if (!patientAccount) {
+        throw new Error(errors.USER_NOT_FOUND.error_code);
+    }
+    const doctors = await Observation.findPatientDoctors(patientAccount._id.toString());
+    return doctors;
+}
+
 export const createChat = async function (account_ids: string[]): Promise<IChat> {
     return Chat.createChat(account_ids);
 }
 
-export const sendMessage = async function (sender_id: string, chat_id: string, text: string, image_name: string) {
+export const sendMessage = async function (sender_id: string, chat_id: string, text: string, image_name: string): Promise<IMessage> {
     const newMessage = await Message.createMessage(sender_id, chat_id, text, image_name);
     const chat = await Chat.findById(chat_id);
     chat.users.forEach(async user_id => {
-            sendNotification(user_id.toString(), 'receiveMessage', newMessage);
+            sendPush(user_id.toString(), 'receiveMessage', newMessage);
         }
     );
+    return newMessage;
 }
 
 export const getChatMessages = async function (chat_id: string, account_id: string): Promise<IMessage[]> {
@@ -117,6 +201,15 @@ export const getChatMessages = async function (chat_id: string, account_id: stri
 
 export const seen_message = async function (message_id: string): Promise<void> {
     await Message.seenMessage(message_id)
+}
+
+export const deleteMessage = async function (message_id: string): Promise<void> {
+    const message = await Message.deleteMessage(message_id);
+    const chat = await Chat.findById(message.chat);
+    chat.users.forEach(async user_id => {
+            sendPush(user_id.toString(), 'deleteMessage', {_id: message_id});
+        }
+    );
 }
 
 
@@ -128,13 +221,13 @@ export const captureParameter = async function (device_code: string, parameter_n
         value: value,
         created_at: new Date()
     });
-    const doctorIds = await PatientDoctor.findDoctorIds(device.patient.toString());
+    const doctorIds = await Observation.findPatientDoctors(device.patient.toString());
     const accountIdPromises = [Account.findOne({patient: device.patient})];
     doctorIds.forEach(id => accountIdPromises.push(Account.findOne({doctor: id})));
     const accounts = await Promise.all(accountIdPromises);
     accounts.forEach(account => {
         if (account) {
-            sendNotification(account._id.toString(), 'receiveParameter', parameter);
+            sendPush(account._id.toString(), 'receiveParameter', parameter);
         }
     });
     if (ParameterLimit.isParameterOutOfBounds(parameter)) {
@@ -158,7 +251,7 @@ export const getDoctorReservableTimeslots = async function (doctor_id: string, d
     return timeTable.filter(t => !reservations.find(r => r.time.getTime() === t.getTime()));
 }
 
-export const reserve_time = async function (doctor_id: string, patient_id: string, time: Date) {
+export const reserveTime = async function (doctor_id: string, patient_id: string, time: Date) {
     const doctor = await Doctor.findOne({_id: doctor_id});
     const timeslots = doctor.getTimeTable(time);
     if (!timeslots.find(t => t.getTime() === time.getTime())) {
@@ -169,6 +262,63 @@ export const reserve_time = async function (doctor_id: string, patient_id: strin
         throw new Error('Time slot is already reserved');
     }
     return Reservation.reserveTimeSlot(doctor_id, patient_id, time, '');
+}
+
+
+export const getUserNotifications = async function (account_id: string) {
+    const notifications = await Notification.getUserNotifications(account_id);
+    const urgentNotifications = notifications.filter(notification => notification.type === 'criticalAlert');
+    const normalNotifications = notifications.filter(notification => notification.type !== 'criticalAlert');
+    return {
+        urgentReminders: urgentNotifications,
+        currentReminders: normalNotifications
+    }
+}
+
+export const sendAppNotification = async function (account_id: string, title: string, body: string, type: string, actionButton: string, actionButtonLink: string, expiryDate: Date) {
+    await Notification.createNotification(title, body, account_id, type, actionButton, actionButtonLink, expiryDate);
+}
+
+// get the list of meetings
+export const getMeetings = async function (patientId: string, doctorId: string) {
+    const filter = {};
+    if (patientId) {
+        filter['patient'] = patientId;
+    }
+    if (doctorId) {
+        filter['doctor'] = doctorId;
+    }
+    const meetings = await Reservation.find(filter).populate('doctor', 'first_name last_name specialization profile_picture').populate('patient', 'first_name last_name profile_picture');
+    return meetings;
+}
+
+// get the details of a meeting
+export const getMeeting = async function (meetingId: string) {
+    const meeting = await Reservation.findById(meetingId).populate('doctor', 'first_name last_name specialization profile_picture').populate('patient', 'first_name last_name profile_picture');
+    return meeting;
+}
+
+export const addPrescription = async function (meetingId: string, medicines: string[], note: string) {
+    const meeting = await Reservation.findById(meetingId) as IReservation;
+    if (!meeting) {
+        throw new Error(errors.MEETING_NOT_FOUND.error_code);
+    }
+    const prescription = await Prescription.createPrescription(meeting.patient, meeting.doctor, medicines, note);
+    return prescription;
+}
+
+export const startMeeting = async function (meetingId: string) {
+    const meeting = await Reservation.findById(meetingId);
+    if (!meeting) throw new Error(errors.MEETING_NOT_FOUND.error_code);
+    await meeting.start(new Date());
+    return meeting;
+}
+
+export const finishMeeting = async function (meetingId: string) {
+    const meeting = await Reservation.findById(meetingId);
+    if (!meeting) throw new Error(errors.MEETING_NOT_FOUND.error_code);
+    await meeting.finish(new Date());
+    return meeting;
 }
 
 const connectTelegramCallback = async function (account_id: string, chat_id: string) {
