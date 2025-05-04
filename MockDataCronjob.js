@@ -1,7 +1,7 @@
 const cron = require('node-cron');
 const handlers = require('./application');
 const {PATIENT_PARAMETERS} = require('./constants');
-const {sendNotification} = require('./socket');
+const {sendPush} = require('./socket');
 const devicesToSendMockData = ['1234'];
 const mockParametersData = [
     {
@@ -45,7 +45,7 @@ cron.schedule('*/30 * * * * *', async () => {
             const value = lastValue ? lastValue.value + ((Math.random() - 0.5) * parameter.variation) : Math.random() * (parameter.max - parameter.min) + parameter.min;
             const {socket_payloads} = await handlers.capture_parameter('1234', parameter.name, value.toFixed(2));
             socket_payloads.map((payload) => {
-                sendNotification(payload.account_id.toString(), 'receiveParameter', payload);
+                sendPush(payload.account_id.toString(), 'receiveParameter', payload);
             });
 
         }

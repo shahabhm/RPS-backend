@@ -1,9 +1,8 @@
-import {Router, Response, NextFunction} from 'express';
+import {NextFunction, Response, Router} from 'express';
 import {body} from "express-validator";
-import {authenticateToken, ICustomRequest, validateAPI} from "../Middlewares";
-import {registerPatient} from "../ts_handlers";
-
-
+import {authenticateToken, ICustomRequest, validateAPI, validateRole} from "../Middlewares";
+import {getDoctorPatients, getPatientInfo, registerPatient} from "../ts_handlers";
+import {USER_ROLES} from "../constants";
 
 
 const router = Router();
@@ -37,6 +36,19 @@ router.post('/api/v1/patient/register',
     }
 );
 
+// returns the list of the patients that a doctor observes
+router.get('/api/v1/patients',
+    authenticateToken,
+    validateRole([USER_ROLES.DOCTOR]),
+    async (req: ICustomRequest, res: Response, next: NextFunction)=> {
+        try {
+            const patients = await getDoctorPatients(req.user.doctor_id);
+            res.send(patients);
+        } catch (e) {
+            next(e);
+        }
+    });
+
 // returns the information of a patient
 router.get('/api/v1/patients/:patient_id',
     authenticateToken,
@@ -50,6 +62,17 @@ router.get('/api/v1/patients/:patient_id',
         }
     }
 );
+
+router.get('/api/v1/patient/my_info', authenticateToken, async (req: ICustomRequest, res: Response, next: NextFunction) => {
+    try {
+        const response = await getPatientInfo(req.user.account_id);
+        response.profile_picture = 'sina.png';
+        res.send(response);
+    } catch (err) {
+        next(err);
+    }
+});
+
 
 
 export default router;

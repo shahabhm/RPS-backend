@@ -1,4 +1,4 @@
-import {Schema, model, Document, Model} from 'mongoose';
+import {Document, model, Model, Schema} from 'mongoose';
 
 interface IPatient extends Document {
     first_name: string;
@@ -15,7 +15,7 @@ interface IPatient extends Document {
     family_history: string[];
     allergies: string[];
     medicines: string[];
-    profile_picture: string;
+    profile_picture?: string;
 }
 
 interface IPatientModel extends Model<IPatient> {
@@ -54,7 +54,7 @@ const PatientSchema = new Schema<IPatient>({
     family_history: {type: [String], required: true},
     allergies: {type: [String], required: true},
     medicines: {type: [String], required: true},
-    profile_picture: {type: String, required: true},
+    profile_picture: {type: String, required: false},
 });
 
 
