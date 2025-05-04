@@ -37,10 +37,10 @@ ObservationSchema.statics.findPatientDoctors = async function (patientId: string
 
 // finds the list of the patients that a doctor observes.
 ObservationSchema.statics.findDoctorPatients = async function (doctorId: string): Promise<IPatient[]> {
-    return Observation.find({doctor: doctorId}).select({
-        'patient': 1,
+    const doctorObservations = await Observation.find({doctor: doctorId}).select({
         '_id': 0
     }).populate('patient', 'first_name last_name profile_picture');
+    return doctorObservations.map((observation) => {console.log(observation.patient); return observation.patient;});
 }
 
 const Observation = model<IObservation, IObservationModel>('Observation', ObservationSchema);
