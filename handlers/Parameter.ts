@@ -1,5 +1,5 @@
-import {Request, Response, NextFunction, Router} from "express"
-import {captureParameter} from "../ts_handlers";
+import {NextFunction, Request, Response, Router} from "express"
+import {captureParameter, getLastParameters} from "../ts_handlers";
 import {body, query} from "express-validator";
 import {authenticateToken, ICustomRequest, validateAPI} from "../Middlewares";
 
@@ -65,12 +65,12 @@ router.get('/api/v1/patient/get_parameters_details',
     }
 );
 
-
-router.get('/api/v1/patient/get_latest_parameters',
+router.get('/api/v1/patient/last_parameters',
+    authenticateToken,
     async (req: ICustomRequest, res: Response, next: NextFunction) => {
         try {
-            const patient_id = req.user.role === 'patient' ? req.user.patient_id : req.query.patient_id;
-            const response = await getLatestParameters(patient_id);
+            const patient_id = req.user.role === 'patient' ? req.user.patient_id : req.query.patient_id as string;
+            const response = await getLastParameters(patient_id);
             res.send(response);
         } catch (e) {
             next(e);
@@ -91,17 +91,6 @@ router.get('/api/v1/patient/parameters_overview',
     }
 );
 
-router.get('/api/v1/patient/my_info',
-    authenticateToken,
-    async (req: ICustomRequest, res: Response, next: NextFunction) => {
-        try {
-            const response = await getPatient(req.user.account_id);
-            response.profile_picture = 'sina.png';
-            res.send(response);
-        } catch (err) {
-            next(err);
-        }
-    });
 
 
 export default router;
