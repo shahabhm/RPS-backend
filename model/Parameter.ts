@@ -29,6 +29,7 @@ const ParameterSchema = new Schema<IParameter>({
     created_at: {type: Date, required: true}
 });
 
+// returns the values of a specific parameter of a patient at a certain time. timeRange is in minutes
 ParameterSchema.statics.getParameters = async function (patient_id: string, parameter: string, selected_time: Date, timeRange: number): Promise<IParameter[]> {
     const rangeStart = new Date(selected_time.getTime() - timeRange * 60 * 1000);
     const rangeEnd = new Date(selected_time.getTime() + timeRange * 60 * 1000);

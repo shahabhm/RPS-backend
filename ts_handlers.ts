@@ -97,12 +97,11 @@ export const getPatientInfo = async function (patientId: string): Promise<IPatie
 }
 
 
-//
-
+// returns the last value of each parameter of the patient
 export const getLastParameters = async function (patientId: string) {
     const latestParameters = await Parameter.aggregate([
         {
-            $match: {patient_id: patientId}
+            $match: {patient: patientId}
         },
         {
             $sort: {created_at: -1}
@@ -132,6 +131,10 @@ export const getLastParameters = async function (patientId: string) {
         };
     });
 
+}
+
+export const getParameters = async function (patientId: string, parameterName: string, selectedTime: Date) : Promise<IParameter[]> {
+    return Parameter.getParameters(patientId, parameterName, selectedTime, 30);
 }
 
 
@@ -210,13 +213,14 @@ export const deleteMessage = async function (message_id: string): Promise<void> 
 }
 
 
-export const captureParameter = async function (device_code: string, parameter_name: string, value: number, date: Date) {
+export const captureParameter = async function (device_code: string, parameter_name: string, value: string, date: Date) {
+    console.log(`capturing parameter ${parameter_name} with value ${value} for device ${device_code}`);
     const device: IDevice = await Device.findOne({code: device_code});
     const parameter = await Parameter.create({
         patient: device.patient,
         parameter: parameter_name,
         value: value,
-        created_at: new Date()
+        created_at: date
     });
     const doctorIds = await Observation.findPatientDoctors(device.patient.toString());
     const accountIdPromises = [Account.findOne({patient: device.patient})];

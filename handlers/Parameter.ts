@@ -1,5 +1,5 @@
 import {NextFunction, Request, Response, Router} from "express"
-import {captureParameter, getLastParameters} from "../ts_handlers";
+import {captureParameter, getLastParameters, getParameters} from "../ts_handlers";
 import {body, query} from "express-validator";
 import {authenticateToken, ICustomRequest, validateAPI} from "../Middlewares";
 
@@ -41,8 +41,9 @@ router.get('/api/v1/patient/get_parameters',
     query('selected_time').notEmpty(),
     async (req: Request, res: Response, next: NextFunction) => {
         try {
-            const {device_id, parameter, selected_time} = req.query;
-            const response = await getParameters(device_id, parameter, new Date(selected_time as string));
+            const {patient_id, parameter, selected_time} = req.query;
+            console.log(patient_id, parameter, selected_time);
+            const response = await getParameters(patient_id as string, parameter as string, new Date(selected_time as string));
             res.send(response);
         } catch (e) {
             next(e);
