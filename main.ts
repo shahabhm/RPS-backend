@@ -6,6 +6,7 @@ import multer from 'multer';
 import winston from 'winston';
 import {initializeSocket} from './socket';
 import './NotificationsCronjob';
+import './MockDataCronjob';
 import {handleAPIErrors} from './Middlewares';
 import accountRouter from './handlers/Account';
 import promotionRouter from './handlers/Promotion';
