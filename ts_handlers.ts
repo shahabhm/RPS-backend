@@ -6,7 +6,7 @@ import {IPatient, Patient} from "./model/Patient";
 import {IMessage, Message} from "./model/Message";
 import {Chat, IChat} from "./model/Chat";
 import {sendPush} from "./socket";
-import {Parameter} from "./model/Parameter";
+import {IParameter, Parameter} from "./model/Parameter";
 import {Device, IDevice} from "./model/Device";
 import {Observation} from "./model/Observation";
 import {ParameterLimit} from "./model/ParameterLimit";
@@ -91,12 +91,9 @@ export const registerPatient = async function (
     return patient;
 }
 
-export const getPatientInfo = async function (patientAccountId: string): Promise<IPatient> {
-    const patientAccount = await Account.findById(patientAccountId);
-    if (!patientAccount) {
-        throw new Error(errors.USER_NOT_FOUND.error_code);
-    }
-    return patientAccount.getPatient();
+export const getPatientInfo = async function (patientId: string): Promise<IPatient> {
+    const response = await Patient.findById(patientId);
+    return response;
 }
 
 

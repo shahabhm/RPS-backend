@@ -65,7 +65,7 @@ router.get('/api/v1/patients/:patient_id',
 
 router.get('/api/v1/patient/my_info', authenticateToken, async (req: ICustomRequest, res: Response, next: NextFunction) => {
     try {
-        const response = await getPatientInfo(req.user.account_id);
+        const response = await getPatientInfo(req.user.patient_id);
         response.profile_picture = 'sina.png';
         res.send(response);
     } catch (err) {
