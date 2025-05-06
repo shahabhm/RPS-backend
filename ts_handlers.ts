@@ -240,6 +240,10 @@ export const captureParameter = async function (device_code: string, parameter_n
     }
 }
 
+export const getParametersOverview = async function (patientId: string) : Promise<any> {
+    return Parameter.getParametersOverview(patientId);
+}
+
 
 export const searchDoctors = async function (city: string, name: string, specialization: string): Promise<IDoctor[]> {
     return Doctor.searchDoctors(city, name, specialization);

@@ -1,5 +1,5 @@
 import {NextFunction, Request, Response, Router} from "express"
-import {captureParameter, getLastParameters, getParameters} from "../ts_handlers";
+import {captureParameter, getLastParameters, getParameters, getParametersOverview} from "../ts_handlers";
 import {body, query} from "express-validator";
 import {authenticateToken, ICustomRequest, validateAPI} from "../Middlewares";
 
@@ -70,7 +70,7 @@ router.get('/api/v1/patient/last_parameters',
     authenticateToken,
     async (req: ICustomRequest, res: Response, next: NextFunction) => {
         try {
-            const patient_id = req.user.role === 'patient' ? req.user.patient_id : req.query.patient_id as string;
+            const patient_id = req.user.role === 'patient' ? req.user.patient_id : req.query.patientId as string;
             const response = await getLastParameters(patient_id);
             res.send(response);
         } catch (e) {
@@ -84,7 +84,7 @@ router.get('/api/v1/patient/parameters_overview',
     async (req: ICustomRequest, res: Response, next: NextFunction) => {
         try {
             const patient_id = req.user.role === 'patient' ? req.user.patient_id : req.query.patient_id;
-            const response = await getPatientParametersOverview(patient_id);
+            const response = await getParametersOverview(patient_id);
             res.send(response);
         } catch (e) {
             next(e);

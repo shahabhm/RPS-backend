@@ -63,7 +63,7 @@ cron.schedule('*/30 * * * * *', async () => {
                 ? lastValue.value + (Math.random() - 0.5) * parameter.variation
                 : Math.random() * (parameter.max - parameter.min) + parameter.min;
 
-            await captureParameter('1234', parameter.name, value.toFixed(2), new Date());
+            captureParameter('1234', parameter.name, value.toFixed(2), new Date());
 
             if (lastValue) {
                 lastValue.value = value;
