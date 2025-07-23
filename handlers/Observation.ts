@@ -6,6 +6,15 @@ import {USER_ROLES} from "../constants";
 
 const router = Router();
 
+router.post('/api/v1/observation', authenticateToken, async (req: ICustomRequest, res: Response, next: NextFunction) => {
+   try {
+       const {patientId, text} = req.body;
+
+   } catch (err) {
+       next(err);
+   }
+});
+
 // returns the list of patients that the doctor observes
 router.get('/api/v1/observee', authenticateToken, validateRole(USER_ROLES.DOCTOR), async (req: ICustomRequest, res: Response, next: NextFunction) => {
         try {

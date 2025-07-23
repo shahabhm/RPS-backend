@@ -55,7 +55,7 @@ describe('Reservation Test', () => {
                 doctor: doctor,
                 patient: patient,
                 time: new Date(2025, 10, 10, 12, 0, 0, 0),
-                status: 'RESERVED',
+                status: 'BOOKED',
                 cancellation_reason: '',
                 description: 'test',
             }]

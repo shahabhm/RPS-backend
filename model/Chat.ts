@@ -6,7 +6,7 @@ interface IChat extends Document {
 }
 
 interface IChatModel extends Model<IChat> {
-    createChat(account_ids: string[]): Promise<IChat>;
+    createChat(account_ids: unknown[]): Promise<IChat>;
     getUserChats(account_id: string, unread: boolean): Promise<IChat[]>;
 }
 

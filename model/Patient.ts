@@ -16,6 +16,7 @@ interface IPatient extends Document {
     allergies: string[];
     medicines: string[];
     profile_picture?: string;
+    accountId?: string;
 }
 
 interface IPatientModel extends Model<IPatient> {

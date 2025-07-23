@@ -42,11 +42,11 @@ ReservationSchema.statics.reserveTimeSlot = async function (doctor_id: string, p
         doctor: doctor_id,
         patient: patient_id,
         time: time,
-        status: 'RESERVED',
+        status: 'BOOKED',
         description: description,
     });
     await reservation.save();
-    return reservation;
+    return (await reservation.populate('doctor', 'first_name last_name'));
 }
 
 ReservationSchema.statics.getReservations = async function (only_active: boolean, doctorId?: string, patientId?: string) {
@@ -81,7 +81,7 @@ ReservationSchema.statics.getValidReservationsForDate = async function (date: Da
             $gte: startOfDay,
             $lte: endOfDay
         },
-        status: 'RESERVED'
+        status: 'BOOKED'
     }).populate('doctor', 'first_name last_name specialization profile_picture');
 }
 

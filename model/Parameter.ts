@@ -23,6 +23,8 @@ interface IParameterModel extends Model<IParameter> {
     getLatestParameters(patient_id: string): Promise<any>;
 
     getParametersOverview(patientId: string): Promise<AllData[]>;
+
+    getParameterBounds(birthdate: Date, gender: string, parameter: string): Promise<any>;
 }
 
 const ParameterSchema = new Schema<IParameter>({
@@ -303,6 +305,10 @@ ParameterSchema.statics.getParametersOverview = async (patientId: string): Promi
 
     return allData;
 };
+
+ParameterSchema.statics.getParameterBounds = async function (patientId: string, parameter: string): Promise<any> {
+    return [12, 24];
+}
 
 const Parameter = model<IParameter, IParameterModel>('Parameter', ParameterSchema);
 

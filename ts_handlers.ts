@@ -9,7 +9,6 @@ import {sendPush} from "./socket";
 import {IParameter, Parameter} from "./model/Parameter";
 import {Device, IDevice} from "./model/Device";
 import {Observation} from "./model/Observation";
-import {ParameterLimit} from "./model/ParameterLimit";
 import {Notification} from "./model/Notification";
 import {Telegram} from "./Telegram";
 import {generateAccessToken, IRequestUser} from "./Middlewares";
@@ -17,6 +16,8 @@ import './mongo';
 import {errors} from "./errors";
 import {PATIENT_PARAMETERS} from "./constants";
 import {Prescription} from "./model/Prescription";
+import {Briefing, IBriefing} from "./model/Briefing";
+import {IParameterBounds, Predictor} from "./model/Predictor";
 
 export const test = async function () {
 //     test cancel reservation
@@ -130,7 +131,6 @@ export const getLastParameters = async function (patientId: string) {
             ...parameterInfo
         };
     });
-
 }
 
 export const getParameters = async function (patientId: string, parameterName: string, selectedTime: Date) : Promise<IParameter[]> {
@@ -181,8 +181,19 @@ export const getPatientDoctors = async function (patient_id: string): Promise<ID
     return doctors;
 }
 
-export const createChat = async function (account_ids: string[]): Promise<IChat> {
-    return Chat.createChat(account_ids);
+export const createChat = async function (accountId: string, otherUserInfo: {
+    patientId: string,
+    doctorId: string,
+    otherAccountId: string
+}): Promise<IChat> {
+    let otherUserAccount: IAccount;
+    if (otherUserInfo.patientId) otherUserAccount = await Account.findOne({patient: otherUserInfo.patientId});
+    if (otherUserInfo.doctorId) otherUserAccount = await Account.findOne({doctor: otherUserInfo.doctorId});
+    if (otherUserInfo.otherAccountId) otherUserAccount = await Account.findById(otherUserInfo.otherAccountId);
+    if (!otherUserAccount) {
+        throw new Error(errors.USER_NOT_FOUND.error_code);
+    }
+    return Chat.createChat([accountId, otherUserAccount._id]);
 }
 
 export const sendMessage = async function (sender_id: string, chat_id: string, text: string, image_name: string): Promise<IMessage> {
@@ -212,6 +223,22 @@ export const deleteMessage = async function (message_id: string): Promise<void> 
     );
 }
 
+export const submitParameter = async function (patientId: string, parameter: string, value: string, time: Date) {
+    const record = await Parameter.create({
+        patient: patientId,
+        parameter: parameter,
+        value: value,
+        created_at: time
+    });
+    return record;
+}
+
+// getParameterNames
+
+export const getParameterNames = function () : any {
+    return PATIENT_PARAMETERS;
+}
+
 
 export const captureParameter = async function (device_code: string, parameter_name: string, value: string, date: Date) {
     console.log(`capturing parameter ${parameter_name} with value ${value} for device ${device_code}`);
@@ -231,19 +258,25 @@ export const captureParameter = async function (device_code: string, parameter_n
             sendPush(account._id.toString(), 'receiveParameter', parameter);
         }
     });
-    if (ParameterLimit.isParameterOutOfBounds(parameter)) {
-        accounts.forEach(account => {
-            if (account.telegram_id) {
-                Telegram.sendMessage(account.telegram_id, `Warning: ${parameter_name} is out of bounds. Value: ${value}`);
-            }
-        });
-    }
+    // if (ParameterLimit.isParameterOutOfBounds(parameter)) {
+    //     accounts.forEach(account => {
+    //         if (account.telegram_id) {
+    //             // Telegram.sendMessage(account.telegram_id, `Warning: ${parameter_name} is out of bounds. Value: ${value}`);
+    //         }
+    //     });
+    // }
 }
 
 export const getParametersOverview = async function (patientId: string) : Promise<any> {
     return Parameter.getParametersOverview(patientId);
 }
 
+// getParameterBounds
+export const getParameterBounds= async function (patientId: string, parameter: string): Promise<IParameterBounds[]> {
+    const patient = await Patient.findById(patientId);
+    const parameterBounds = await Predictor.getPatientParameterBounds(patient, parameter);
+    return parameterBounds;
+}
 
 export const searchDoctors = async function (city: string, name: string, specialization: string): Promise<IDoctor[]> {
     return Doctor.searchDoctors(city, name, specialization);
@@ -269,6 +302,20 @@ export const reserveTime = async function (doctor_id: string, patient_id: string
     return Reservation.reserveTimeSlot(doctor_id, patient_id, time, '');
 }
 
+export const submitBriefing = async function (description: string, patient: string, doctor: string) : Promise<IBriefing> {
+    return Briefing.submitBriefing(description, patient, doctor);
+}
+
+// getBriefings
+
+export const getBriefings = async function (patientId: string) : Promise<IBriefing[]> {
+    return Briefing.getPatientBriefings(patientId);
+}
+
+// getBriefing
+export const getBriefing = async function (briefingId: string) : Promise<IBriefing> {
+    return Briefing.getBriefing(briefingId);
+}
 
 export const getUserNotifications = async function (account_id: string) {
     const notifications = await Notification.getUserNotifications(account_id);

@@ -17,6 +17,7 @@ import notificationRouter from './handlers/Notification';
 import doctorRouter from './handlers/Doctor';
 import meetingRouter from './handlers/Meeting';
 import observationRouter from './handlers/Observation';
+import briefingRouter from './handlers/Briefing';
 
 require('source-map-support').install();
 
@@ -60,6 +61,7 @@ app.use('', notificationRouter);
 app.use('', doctorRouter);
 app.use('', meetingRouter);
 app.use('', observationRouter);
+app.use('', briefingRouter)
 
 
 app.post('/api/v1/upload', upload.single('image'), (req: Request, res: Response) => {

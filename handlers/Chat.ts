@@ -33,8 +33,8 @@ router.get('/api/v1/user/chats/messages', authenticateToken, async (req: ICustom
 router.post('/api/v1/user/chats', authenticateToken, async (req: ICustomRequest, res: Response, next: NextFunction) => {
     try {
         const {account_id} = req.user;
-        const {doctor_id} = req.body;
-        const response = await createChat([account_id, doctor_id]);
+        const {doctorId, patientId, otherAccountId} = req.body; // depending on where the user creates the chat from, one of these will be filled.
+        const response = await createChat(account_id, {doctorId, patientId, otherAccountId});
         res.send(response);
     } catch (err) {
         next(err);
